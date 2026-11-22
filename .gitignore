@@ -1,0 +1,85 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Build and dependencies
+node_modules/
+dist/
+dist-ssr/
+
+# Local backups
+backup/
+backup-global-search/
+backups/
+
+# Temporary reports
+*.log
+frontend-audit-report.txt
+matchpage-build-errors.txt
+
+# Local editor files
+.vscode/
+.idea/
+
+# Local backups and temporary reports
+*.backup
+*.backup-*
+backup/
+backups/
+backup-global-search/
+frontend-audit-report.txt
+matchpage-build-errors.txt
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Backup files
+*.bak
+*.bak-*
+*.backup
+*.backup-*
+*.before-*
+*.static-backup
+*.league-backup
+*.match-detail-backup
+*.error-backup
+*.performance-backup
+*.season-backup
+*.transfer-backup
+
+# Temporary project files
+*.log
+*.tmp
+
+# Additional backup patterns
+*.step*-backup
+*.backup.css

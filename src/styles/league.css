@@ -1,0 +1,74 @@
+
+/* Responsive Season Selector */
+.season-select-wrap {
+  position: relative;
+  width: clamp(112px, 18vw, 150px);
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.season-select-wrap select {
+  display: block;
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--border-color, #dbe3ec);
+  border-radius: 8px;
+  background: var(--surface-color, #fff);
+  color: var(--text-color, #243447);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.season-select-wrap select:hover {
+  border-color: #94a3b8;
+}
+
+.season-select-wrap select:focus-visible {
+  border-color: #16a36a;
+  box-shadow: 0 0 0 3px rgb(22 163 106 / 12%);
+}
+
+.season-select-wrap > svg {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #64748b;
+}
+
+@media (max-width: 640px) {
+  .season-select-wrap {
+    width: 112px;
+  }
+
+  .season-select-wrap select {
+    height: 36px;
+    min-height: 36px;
+    font-size: 12px;
+    padding-right: 28px;
+  }
+
+  .season-select-wrap > svg {
+    right: 8px;
+    width: 13px;
+    height: 13px;
+  }
+}
+
+@media (max-width: 360px) {
+  .season-select-wrap {
+    width: 104px;
+  }
+}
