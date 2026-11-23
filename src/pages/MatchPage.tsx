@@ -10,11 +10,19 @@ import {
 } from "lucide-react";
 
 import type { Match } from "../types";
-import type { MatchEvent, MatchDetails } from "../data/matchDetailData";
+import type {
+  MatchEvent,
+  MatchDetails,
+  MatchFormItem,
+  MatchLineupPlayer,
+} from "../data/matchDetailData";
 import { getMatchDetails } from "../services/matchDetailService";
+import { translate } from "../i18n";
+import type { AppLanguage, TranslationKey } from "../i18n";
 
 type MatchPageProps = {
   match: Match;
+  language: AppLanguage;
   onBack: () => void;
 };
 
@@ -28,12 +36,15 @@ type MatchTab =
 
 export default function MatchPage({
   match,
+  language,
   onBack,
 }: MatchPageProps) {
+  const t = (key: TranslationKey) => translate(language, key);
   const [tab, setTab] =
     useState<MatchTab>("overview");
 
   const [isFollowing, setIsFollowing] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
 
   const [detailState, setDetailState] = useState<{
     matchId: Match["id"];
@@ -50,6 +61,8 @@ export default function MatchPage({
           details,
         });
       }
+    }).catch(() => {
+      if (!cancelled) setDetailsError(match.id);
     });
 
     return () => {
@@ -61,6 +74,9 @@ export default function MatchPage({
     detailState?.matchId === match.id
       ? detailState.details
       : undefined;
+
+  const detailsLoading = detailState?.matchId !== match.id && detailsError !== match.id;
+  const detailsReady = !detailsLoading && detailsError !== match.id;
 
   const events: MatchEvent[] = details?.events ?? [];
   const homePlayers = details?.homePlayers ?? [];
@@ -80,10 +96,10 @@ export default function MatchPage({
     match.awayScore ?? 0;
 
   const statusText = live
-    ? "LIVE"
+    ? translate(language, "live").toUpperCase()
     : finished
-      ? "Full time"
-      : match.time ?? "Upcoming";
+      ? t("fullTime")
+      : match.time ?? t("scheduled");
 
   const scoreText =
     finished || live
@@ -91,22 +107,15 @@ export default function MatchPage({
       : "-";
 
   const matchDate = useMemo(
-    () =>
-      new Intl.DateTimeFormat(
-        "en-GB",
-        {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        },
-      ).format(new Date(match.date)),
-    [match.date],
+    () => matchDateText(match.date, language),
+    [match.date, language],
   );
 
   return (
     <main className="match-page">
 
       <div className="match-page-inner">
+        {detailsError === match.id && <p role="alert">{t("matchDetailsError")}</p>}
 
         <div className="match-page-topbar">
 
@@ -115,7 +124,7 @@ export default function MatchPage({
             onClick={onBack}
           >
             <ArrowLeft size={17} />
-            <span>Back to matches</span>
+            <span>{t("backToMatches")}</span>
           </button>
 
           <div className="match-page-competition">
@@ -132,8 +141,8 @@ export default function MatchPage({
             <div>
               <span className="match-kicker">
                 {match.sport === "football"
-                  ? "Football"
-                  : "Futsal"}
+                  ? t("football")
+                  : t("futsal")}
               </span>
 
               <h1>
@@ -147,7 +156,7 @@ export default function MatchPage({
               aria-pressed={isFollowing}
             >
               <Heart size={15} fill={isFollowing ? "currentColor" : "none"} />
-              {isFollowing ? "Following" : "Follow"}
+              {isFollowing ? t("following") : t("follow")}
             </button>
 
           </div>
@@ -161,12 +170,12 @@ export default function MatchPage({
 
             <span>
               <Clock3 size={14} />
-              {match.time ?? "Full time"}
+              {match.time ?? (finished ? t("fullTime") : live ? t("live").toUpperCase() : t("timeTbd"))}
             </span>
 
             <span>
               <MapPin size={14} />
-              Afghanistan
+              {t("afghanistan")}
             </span>
 
           </div>
@@ -184,7 +193,7 @@ export default function MatchPage({
               </strong>
 
               <span>
-                Home
+                {t("matchHome")}
               </span>
 
             </div>
@@ -221,7 +230,7 @@ export default function MatchPage({
               </strong>
 
               <span>
-                Away
+                {t("away")}
               </span>
 
             </div>
@@ -233,12 +242,12 @@ export default function MatchPage({
         <nav className="match-tabs">
 
           {[
-            ["overview", "Overview"],
-            ["commentary", "Commentary"],
-            ["lineup", "Lineup"],
-            ["stats", "Stats"],
-            ["table", "Table"],
-            ["h2h", "Head-to-Head"],
+            ["overview", t("overview")],
+            ["commentary", t("commentary")],
+            ["lineup", t("lineup")],
+            ["stats", t("stats")],
+            ["table", t("table")],
+            ["h2h", t("headToHead")],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -259,9 +268,12 @@ export default function MatchPage({
 
         </nav>
 
-        {tab === "overview" && (
+        {detailsLoading && <p role="status">{t("loadingMatchDetails")}</p>}
+
+        {detailsReady && tab === "overview" && (
           <Overview
             match={match}
+            language={language}
             setTab={setTab}
             stats={details?.stats ?? []}
             events={events}
@@ -271,33 +283,36 @@ export default function MatchPage({
           />
         )}
 
-        {tab === "commentary" && (
-          <Commentary events={events} />
+        {detailsReady && tab === "commentary" && (
+          <Commentary events={events} language={language} />
         )}
 
-        {tab === "lineup" && (
+        {detailsReady && tab === "lineup" && (
           <Lineup
             home={match.home}
             away={match.away}
+            language={language}
             homePlayers={homePlayers}
             awayPlayers={awayPlayers}
           />
         )}
 
-        {tab === "stats" && (
-          <Stats stats={details?.stats ?? []} />
+        {detailsReady && tab === "stats" && (
+          <Stats stats={details?.stats ?? []} language={language} />
         )}
 
-        {tab === "table" && (
+        {detailsReady && tab === "table" && (
           <LeagueTable
             rows={details?.table ?? []}
+            language={language}
           />
         )}
 
-        {tab === "h2h" && (
+        {detailsReady && tab === "h2h" && (
           <HeadToHead
             home={match.home}
             away={match.away}
+            language={language}
             details={details?.headToHead}
           />
         )}
@@ -310,6 +325,7 @@ export default function MatchPage({
 
 function Overview({
   match,
+  language,
   setTab,
   events,
   homePlayers,
@@ -318,13 +334,15 @@ function Overview({
   stats,
 }: {
   match: Match;
+  language: AppLanguage;
   setTab: (tab: MatchTab) => void;
   events: MatchEvent[];
-  homePlayers: string[][];
-  awayPlayers: string[][];
-  form: string[][];
+  homePlayers: MatchLineupPlayer[];
+  awayPlayers: MatchLineupPlayer[];
+  form: MatchFormItem[];
   stats: MatchDetails["stats"];
 }) {
+  const t = (key: TranslationKey) => translate(language, key);
   return (
     <div className="match-content-grid">
 
@@ -335,7 +353,7 @@ function Overview({
           <div className="match-card-header">
             <div>
               <span className="match-section-kicker">
-                Match summary
+                {t("matchSummary")}
               </span>
 
               <h2>
@@ -352,8 +370,8 @@ function Overview({
 
           <p className="match-review">
             {match.status === "UPCOMING"
-              ? "The match has not started yet. Match information will appear here when available."
-              : "The final score is available. Detailed match analysis will be added when verified data is available."}
+              ? t("matchNotStarted")
+              : t("finalScoreAvailable")}
           </p>
 
         </section>
@@ -361,13 +379,13 @@ function Overview({
         <section className="match-card">
 
           <div className="match-card-header">
-            <h2>Top stats</h2>
+            <h2>{t("leagueTopRated")}</h2>
 
             <button
               className="small-action"
               onClick={() => setTab("stats")}
             >
-              All stats
+              {t("allStats")}
             </button>
           </div>
 
@@ -384,8 +402,8 @@ function Overview({
             </div>
           ) : (
             <EmptyState
-              title="Statistics unavailable"
-              description="Verified match statistics have not been added yet."
+              title={t("statisticsUnavailable")}
+              description={t("statisticsNotAdded")}
             />
           )}
 
@@ -394,10 +412,10 @@ function Overview({
         <section className="match-card">
 
           <div className="match-card-header">
-            <h2>Events</h2>
+            <h2>{t("events")}</h2>
 
             <span className="match-card-muted">
-              Match timeline
+              {t("timeline")}
             </span>
           </div>
 
@@ -422,8 +440,8 @@ function Overview({
             </div>
           ) : (
             <EmptyState
-              title="No match events"
-              description="Goals, cards and substitutions will appear here when verified event data is available."
+              title={t("noMatchEvents")}
+              description={t("matchEventsNote")}
             />
           )}
 
@@ -432,13 +450,13 @@ function Overview({
         <section className="match-card">
 
           <div className="match-card-header">
-            <h2>Lineups</h2>
+            <h2>{t("lineup")}</h2>
 
             <button
               className="small-action"
               onClick={() => setTab("lineup")}
             >
-              Full lineup
+              {t("fullLineup")}
             </button>
           </div>
 
@@ -449,8 +467,8 @@ function Overview({
             </div>
           ) : (
             <EmptyState
-              title="Lineups not available"
-              description="Starting players and formations will appear here after official lineups are published."
+              title={t("lineupsUnavailable")}
+              description={t("lineupsNote")}
             />
           )}
 
@@ -463,27 +481,27 @@ function Overview({
         <section className="match-card">
 
           <div className="match-card-header">
-            <h2>Team form</h2>
+            <h2>{t("teamForm")}</h2>
           </div>
 
           {form.length > 0 ? (
             <div className="form-list">
-              {form.map(([team, score, result]) => (
-                <div className="form-row" key={team}>
+              {form.map((item) => (
+                <div className="form-row" key={`${item.matchId}:${item.teamId}`}>
                   <div>
-                    <strong>{team}</strong>
-                    <span>{score}</span>
+                    <strong>{item.team}</strong>
+                    <span>{item.score}</span>
                   </div>
-                  <span className={`form-result ${result.toLowerCase()}`}>
-                    {result}
+                  <span className={`form-result ${item.result.toLowerCase()}`}>
+                    {item.result}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
             <EmptyState
-              title="Team form unavailable"
-              description="Recent results for both teams will appear here when available."
+              title={t("teamFormUnavailable")}
+              description={t("teamFormNote")}
             />
           )}
 
@@ -492,37 +510,37 @@ function Overview({
         <section className="match-card">
 
           <div className="match-card-header">
-            <h2>Match information</h2>
+            <h2>{t("matchInformation")}</h2>
           </div>
 
           <div className="info-list">
 
             <div>
-              <span>Competition</span>
+              <span>{t("competition")}</span>
               <strong>
                 {match.leagueName}
               </strong>
             </div>
 
             <div>
-              <span>Date</span>
+              <span>{t("date")}</span>
               <strong>
-                {matchDateText(match.date)}
+                {matchDateText(match.date, language)}
               </strong>
             </div>
 
             <div>
-              <span>Country</span>
-              <strong>Afghanistan</strong>
+              <span>{translate(language, "country")}</span>
+              <strong>{translate(language, "afghanistan")}</strong>
             </div>
 
             <div>
-              <span>Sport</span>
+              <span>{translate(language, "sportFilter")}</span>
               <strong>
                 {match.sport ===
                 "football"
-                  ? "Football"
-                  : "Futsal"}
+                  ? translate(language, "football")
+                  : translate(language, "futsal")}
               </strong>
             </div>
 
@@ -540,22 +558,25 @@ function Overview({
 
 function Commentary({
   events,
+  language,
 }: {
   events: MatchEvent[];
+  language: AppLanguage;
 }) {
+  const t = (key: TranslationKey) => translate(language, key);
   return (
     <section className="match-card match-full-card">
 
       <div className="match-card-header">
         <div>
           <span className="match-section-kicker">
-            Live updates
+            {t("live")}
           </span>
-          <h2>Commentary</h2>
+          <h2>{t("commentary")}</h2>
         </div>
 
         <span className="match-card-muted">
-          Timeline
+          {t("timeline")}
         </span>
       </div>
 
@@ -573,8 +594,8 @@ function Commentary({
         </div>
       ) : (
         <EmptyState
-          title="No commentary available"
-          description="Match commentary will appear here when verified updates are available."
+          title={t("noMatchEvents")}
+          description={t("matchEventsNote")}
         />
       )}
 
@@ -585,13 +606,15 @@ function Commentary({
 function Lineup({
   home,
   away,
+  language,
   homePlayers,
   awayPlayers,
 }: {
   home: string;
   away: string;
-  homePlayers: string[][];
-  awayPlayers: string[][];
+  language: AppLanguage;
+  homePlayers: MatchLineupPlayer[];
+  awayPlayers: MatchLineupPlayer[];
 }) {
   return (
     <div className="match-lineup-layout">
@@ -605,6 +628,7 @@ function Lineup({
 
         <PlayerList
           players={homePlayers}
+          language={language}
         />
 
       </section>
@@ -618,6 +642,7 @@ function Lineup({
 
         <PlayerList
           players={awayPlayers}
+          language={language}
         />
 
       </section>
@@ -628,13 +653,16 @@ function Lineup({
 
 function Stats({
   stats,
+  language,
 }: {
   stats: MatchDetails["stats"];
+  language: AppLanguage;
 }) {
+  const t = (key: TranslationKey) => translate(language, key);
   return (
     <section className="match-card match-full-card">
       <div className="match-card-header">
-        <h2>Match statistics</h2>
+        <h2>{t("statistics")}</h2>
       </div>
       {stats.length > 0 ? (
         <div className="full-stats">
@@ -649,8 +677,8 @@ function Stats({
         </div>
       ) : (
         <EmptyState
-          title="Statistics unavailable"
-          description="Detailed match statistics will appear here when verified data is available."
+          title={t("statisticsUnavailable")}
+          description={t("statisticsNotAdded")}
         />
       )}
     </section>
@@ -658,17 +686,20 @@ function Stats({
 }
 function LeagueTable({
   rows,
+  language,
 }: {
   rows: MatchDetails["table"];
+  language: AppLanguage;
 }) {
+  const t = (key: TranslationKey) => translate(language, key);
   return (
     <section className="match-card match-full-card">
       <div className="match-card-header">
         <div>
           <span className="match-section-kicker">
-            Competition
+            {t("competition")}
           </span>
-          <h2>League table</h2>
+          <h2>{t("leagueTable")}</h2>
         </div>
         <Trophy size={17} />
       </div>
@@ -679,17 +710,17 @@ function LeagueTable({
             <thead>
               <tr>
                 <th>#</th>
-                <th>Team</th>
-                <th>MP</th>
+                <th>{t("team")}</th>
+                <th>{t("matchesPlayed")}</th>
                 <th>W</th>
                 <th>D</th>
                 <th>L</th>
-                <th>PTS</th>
+                <th>{t("points")}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.position}>
+                <tr key={row.teamId}>
                   <td>{row.position}</td>
                   <td><strong>{row.team}</strong></td>
                   <td>{row.played}</td>
@@ -704,8 +735,8 @@ function LeagueTable({
         </div>
       ) : (
         <EmptyState
-          title="League table unavailable"
-          description="Competition standings will appear here when official table data is available."
+          title={t("statisticsUnavailable")}
+          description={t("statisticsNotAdded")}
         />
       )}
     </section>
@@ -715,44 +746,47 @@ function HeadToHead({
   home,
   away,
   details,
+  language,
 }: {
   home: string;
   away: string;
   details: MatchDetails["headToHead"] | undefined;
+  language: AppLanguage;
 }) {
+  const t = (key: TranslationKey) => translate(language, key);
   return (
     <div className="match-content-grid">
       <div className="match-main-column">
         <section className="match-card">
           <div className="match-card-header">
-            <h2>Head-to-Head</h2>
+            <h2>{t("headToHead")}</h2>
           </div>
 
           {details ? (
             <div className="h2h-summary">
               <div>
                 <strong>{details.homeWins}</strong>
-                <span>{home} wins</span>
+                <span>{home} {t("wins")}</span>
               </div>
               <div>
                 <strong>{details.draws}</strong>
-                <span>Draws</span>
+                <span>{t("draws")}</span>
               </div>
               <div>
                 <strong>{details.awayWins}</strong>
-                <span>{away} wins</span>
+                <span>{away} {t("wins")}</span>
               </div>
             </div>
           ) : (
             <p className="match-card-muted">
-              No head-to-head data available.
+              {t("statisticsUnavailable")}
             </p>
           )}
         </section>
 
         <section className="match-card">
           <div className="match-card-header">
-            <h2>Previous meetings</h2>
+            <h2>{t("leagueAllFixtures")}</h2>
           </div>
 
           {details?.meetings && details.meetings.length > 0 ? (
@@ -767,8 +801,8 @@ function HeadToHead({
             </div>
           ) : (
             <EmptyState
-              title="No previous meetings"
-              description="Previous results between these teams will appear here when available."
+              title={t("noMatchEvents")}
+              description={t("teamFormNote")}
             />
           )}
         </section>
@@ -825,7 +859,7 @@ function LineupTeam({
   players,
 }: {
   name: string;
-  players: string[][];
+  players: MatchLineupPlayer[];
 }) {
   return (
     <div className="lineup-team-preview">
@@ -836,10 +870,10 @@ function LineupTeam({
       </div>
 
       {players.map(
-        ([number, player, rating]) => (
+        ({ number, player, rating, playerId }) => (
           <div
             className="lineup-player-row"
-            key={number}
+            key={playerId}
           >
             <span>{number}</span>
 
@@ -858,17 +892,20 @@ function LineupTeam({
 
 function PlayerList({
   players,
+  language = "en",
 }: {
-  players: string[][];
+  players: MatchLineupPlayer[];
+  language?: AppLanguage;
 }) {
+  const t = (key: TranslationKey) => translate(language, key);
   return (
     <div className="player-list-match">
 
       {players.map(
-        ([number, player, rating]) => (
+        ({ number, player, rating, playerId }) => (
           <div
             className="player-match-row"
-            key={number}
+            key={playerId}
           >
             <span>
               {number}
@@ -880,7 +917,7 @@ function PlayerList({
               </strong>
 
               <small>
-                Player
+                {t("player")}
               </small>
             </div>
 
@@ -896,19 +933,19 @@ function PlayerList({
 
 function matchDateText(
   date: string,
+  language: AppLanguage = "en",
 ) {
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return translate(language, "notAvailable");
   return new Intl.DateTimeFormat(
-    "en-GB",
+    language === "en" ? "en-GB" : language === "fa-AF" ? "fa-AF" : "ps-AF",
     {
       day: "2-digit",
       month: "short",
       year: "numeric",
     },
-  ).format(new Date(date));
+  ).format(parsed);
 }
-
-
-
 
 
 

@@ -14,6 +14,8 @@ import { demoPlayerMatchPerformances } from "../data/playerMatchData";
 import { demoTransfers } from "../data/transferData";
 import { demoMemberships } from "../data/membershipData";
 import { getDemoMatchDetails } from "../data/matchDetailData";
+import { demoVenues } from "../data/geographyData";
+import type { DemoVenue } from "../data/geographyData";
 
 export const staticApi = {
   async getLeagues(): Promise<League[]> {
@@ -25,7 +27,7 @@ export const staticApi = {
   },
 
   async getMatchesByLeague(leagueId: string): Promise<Match[]> {
-    return matches.filter((match) => match.league === leagueId);
+    return matches.filter((match) => match.leagueId === leagueId);
   },
 
   async getMatchDetails(matchId: string) {
@@ -38,6 +40,14 @@ export const staticApi = {
 
   async getTeamById(id: string): Promise<Team | undefined> {
     return demoTeams.find((team) => team.id === id);
+  },
+
+  async getVenues(): Promise<DemoVenue[]> {
+    return [...demoVenues];
+  },
+
+  async getVenueById(id: string): Promise<DemoVenue | undefined> {
+    return demoVenues.find((venue) => venue.id === id);
   },
 
   async getPlayers(): Promise<Player[]> {

@@ -8,12 +8,14 @@ import {
   Trophy,
 } from "lucide-react";
 import type { Match, Player, Team } from "../types";
+import { translate } from "../i18n";
+import type { AppLanguage, TranslationKey } from "../i18n";
 
 type TeamPageProps = {
-  teamName: string;
-  team?: Team;
+  team: Team;
   matches: Match[];
   players: Player[];
+  language: AppLanguage;
   onOpenPlayer: (player: Player) => void;
   onBack: () => void;
 };
@@ -21,13 +23,15 @@ type TeamPageProps = {
 type TeamTab = "overview" | "matches" | "statistics" | "squad";
 
 export default function TeamPage({
-  teamName,
   team,
   matches,
   players,
+  language,
   onOpenPlayer,
   onBack,
 }: TeamPageProps) {
+  const t = (key: TranslationKey) => translate(language, key);
+  const teamName = team.name;
   const [activeTab, setActiveTab] =
     useState<TeamTab>("overview");
   const [isFollowing, setIsFollowing] =
@@ -38,15 +42,15 @@ export default function TeamPage({
       matches
         .filter(
           (match) =>
-            match.home === teamName ||
-            match.away === teamName,
+            match.homeTeamId === team.id ||
+            match.awayTeamId === team.id,
         )
         .sort(
           (a, b) =>
             new Date(b.date).getTime() -
             new Date(a.date).getTime(),
         ),
-    [matches, teamName],
+    [matches, team.id],
   );
 
   const completedMatches = teamMatches.filter(
@@ -69,7 +73,7 @@ export default function TeamPage({
     let goalsAgainst = 0;
 
     completedMatches.forEach((match) => {
-      const isHome = match.home === teamName;
+      const isHome = match.homeTeamId === team.id;
       const scored = isHome
         ? match.homeScore ?? 0
         : match.awayScore ?? 0;
@@ -95,16 +99,16 @@ export default function TeamPage({
       goalDifference: goalsFor - goalsAgainst,
       points: wins * 3 + draws,
     };
-  }, [completedMatches, teamName]);
+  }, [completedMatches, team.id]);
 
-  const latestLeague = teamMatches[0]?.leagueName ?? "Afghanistan";
+  const latestLeague = teamMatches[0]?.leagueName ?? t("afghanistan");
   const sport = team?.sport ?? teamMatches[0]?.sport ?? "football";
 
   const formatDate = (date: string) => {
     const parsed = new Date(`${date}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) return date;
 
-    return new Intl.DateTimeFormat("en-GB", {
+    return new Intl.DateTimeFormat(language === "en" ? "en-GB" : language === "fa-AF" ? "fa-AF" : "ps-AF", {
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -112,7 +116,7 @@ export default function TeamPage({
   };
 
   const renderMatch = (match: Match) => {
-    const isHome = match.home === teamName;
+    const isHome = match.homeTeamId === team.id;
     const opponent = isHome ? match.away : match.home;
     const scored = isHome
       ? match.homeScore
@@ -141,13 +145,13 @@ export default function TeamPage({
           </span>
           <div>
             <strong>{opponent}</strong>
-            <small>{isHome ? "Home" : "Away"}</small>
+            <small>{isHome ? t("matchHome") : t("away")}</small>
           </div>
         </div>
 
         <div className="team-match-score">
           {match.status === "UPCOMING" ? (
-            <strong>{match.time ?? "TBD"}</strong>
+            <strong>{match.time ?? t("tbd")}</strong>
           ) : (
             <strong>
               {scored ?? 0} - {conceded ?? 0}
@@ -155,10 +159,10 @@ export default function TeamPage({
           )}
           <span className={`team-match-status ${match.status.toLowerCase()}`}>
             {match.status === "FT"
-              ? "Full time"
+              ? t("fullTime")
               : match.status === "LIVE"
-                ? "Live"
-                : "Upcoming"}
+                ? t("live")
+                : t("scheduled")}
           </span>
         </div>
 
@@ -176,9 +180,9 @@ export default function TeamPage({
       <div className="team-page-topbar">
         <button className="team-back-button" onClick={onBack}>
           <ArrowLeft size={17} />
-          <span>Back</span>
+          <span>{t("back")}</span>
         </button>
-        <span className="team-breadcrumb">Teams / {teamName}</span>
+        <span className="team-breadcrumb">{t("teamsBreadcrumb")} / {teamName}</span>
       </div>
 
       <section className="team-hero-card">
@@ -189,11 +193,11 @@ export default function TeamPage({
 
           <div className="team-hero-info">
             <span className="team-eyebrow">
-              {sport === "futsal" ? "FUTSAL CLUB" : "FOOTBALL CLUB"}
+              {sport === "futsal" ? t("futsal").toUpperCase() : t("football").toUpperCase()}
             </span>
             <h1>{teamName}</h1>
             <div className="team-hero-meta">
-              <span><MapPinIcon /> {team?.country ?? "Afghanistan"}</span>
+              <span><MapPinIcon /> {team?.country ?? t("afghanistan")}</span>
               <span><Trophy size={14} /> {latestLeague}</span>
             </div>
           </div>
@@ -203,43 +207,43 @@ export default function TeamPage({
             onClick={() => setIsFollowing((value) => !value)}
           >
             <Heart size={16} fill={isFollowing ? "currentColor" : "none"} />
-            {isFollowing ? "Following" : "Follow"}
+            {isFollowing ? t("following") : t("follow")}
           </button>
         </div>
 
         <div className="team-hero-footer">
-          <span><CalendarDays size={15} /> 2026 Season</span>
-          <span>{sport === "futsal" ? "Futsal" : "Football"}</span>
-          {team?.isDemo && <span>Demo team data</span>}
-          <span>{team?.country ?? "Afghanistan"}</span>
+          <span><CalendarDays size={15} /> {t("season2026")}</span>
+          <span>{sport === "futsal" ? t("futsal") : t("football")}</span>
+          {team?.isDemo && <span>{t("demoTeamData")}</span>}
+          <span>{team?.country ?? t("afghanistan")}</span>
         </div>
       </section>
 
       <section className="team-stats-grid">
         <div className="team-stat-card">
-          <span>Played</span>
+          <span>{t("matchesPlayed")}</span>
           <strong>{stats.played}</strong>
-          <small>Completed matches</small>
+          <small>{t("completedMatches")}</small>
         </div>
         <div className="team-stat-card">
-          <span>Wins</span>
+          <span>{t("wins")}</span>
           <strong>{stats.wins}</strong>
-          <small>Victories</small>
+          <small>{t("victories")}</small>
         </div>
         <div className="team-stat-card">
-          <span>Draws</span>
+          <span>{t("draws")}</span>
           <strong>{stats.draws}</strong>
-          <small>Drawn matches</small>
+          <small>{t("drawnMatches")}</small>
         </div>
         <div className="team-stat-card">
-          <span>Losses</span>
+          <span>{t("losses")}</span>
           <strong>{stats.losses}</strong>
-          <small>Defeats</small>
+          <small>{t("defeats")}</small>
         </div>
         <div className="team-stat-card">
-          <span>Points</span>
+          <span>{t("points")}</span>
           <strong>{stats.points}</strong>
-          <small>Calculated points</small>
+          <small>{t("calculatedPoints")}</small>
         </div>
       </section>
 
@@ -248,25 +252,25 @@ export default function TeamPage({
           className={activeTab === "overview" ? "active" : ""}
           onClick={() => setActiveTab("overview")}
         >
-          Overview
+          {t("overview")}
         </button>
         <button
           className={activeTab === "matches" ? "active" : ""}
           onClick={() => setActiveTab("matches")}
         >
-          Matches
+          {t("matches")}
         </button>
         <button
           className={activeTab === "statistics" ? "active" : ""}
           onClick={() => setActiveTab("statistics")}
         >
-          Statistics
+          {t("statistics")}
         </button>
         <button
           className={activeTab === "squad" ? "active" : ""}
           onClick={() => setActiveTab("squad")}
         >
-          Squad
+          {t("squad")}
         </button>
       </nav>
 
@@ -275,11 +279,11 @@ export default function TeamPage({
           <section className="team-panel">
             <div className="team-panel-heading">
               <div>
-                <h2>Recent results</h2>
-                <p>Completed matches for {teamName}</p>
+                <h2>{t("recentResults")}</h2>
+                <p>{t("recentResultsNote")} {teamName}</p>
               </div>
               <button onClick={() => setActiveTab("matches")}>
-                View all
+                {t("viewAll")}
               </button>
             </div>
 
@@ -289,7 +293,7 @@ export default function TeamPage({
               </div>
             ) : (
               <div className="team-empty-state">
-                No completed matches available yet.
+                {t("noCompletedMatches")}
               </div>
             )}
           </section>
@@ -297,33 +301,33 @@ export default function TeamPage({
           <aside className="team-panel team-side-panel">
             <div className="team-panel-heading">
               <div>
-                <h2>Season summary</h2>
-                <p>Based on available results</p>
+                <h2>{t("seasonSummary")}</h2>
+                <p>{t("seasonSummaryNote")}</p>
               </div>
               <BarChart3 size={19} />
             </div>
 
             <div className="team-summary-line">
-              <span>Goals scored</span>
+              <span>{t("goalsScored")}</span>
               <strong>{stats.goalsFor}</strong>
             </div>
             <div className="team-summary-line">
-              <span>Goals conceded</span>
+              <span>{t("goalsConceded")}</span>
               <strong>{stats.goalsAgainst}</strong>
             </div>
             <div className="team-summary-line">
-              <span>Goal difference</span>
+              <span>{t("leagueGoalDifference")}</span>
               <strong>
                 {stats.goalDifference > 0 ? "+" : ""}
                 {stats.goalDifference}
               </strong>
             </div>
             <div className="team-summary-line">
-              <span>Live matches</span>
+              <span>{t("liveMatches")}</span>
               <strong>{liveMatches.length}</strong>
             </div>
             <div className="team-summary-line">
-              <span>Upcoming matches</span>
+              <span>{t("upcomingMatches")}</span>
               <strong>{upcomingMatches.length}</strong>
             </div>
           </aside>
@@ -334,10 +338,10 @@ export default function TeamPage({
         <section className="team-panel">
           <div className="team-panel-heading">
             <div>
-              <h2>All matches</h2>
-              <p>Results, live games and upcoming fixtures</p>
+              <h2>{t("allMatchesCount")}</h2>
+              <p>{t("allMatchesNote")}</p>
             </div>
-            <span className="team-count">{teamMatches.length} matches</span>
+            <span className="team-count">{teamMatches.length} {t("matchesCount")}</span>
           </div>
 
           {teamMatches.length > 0 ? (
@@ -346,7 +350,7 @@ export default function TeamPage({
             </div>
           ) : (
             <div className="team-empty-state">
-              No matches found for this team.
+              {t("noMatchesTeam")}
             </div>
           )}
         </section>
@@ -356,10 +360,10 @@ export default function TeamPage({
         <section className="team-panel">
           <div className="team-panel-heading">
             <div>
-              <h2>Squad</h2>
-              <p>Players registered in this team</p>
+              <h2>{t("squad")}</h2>
+              <p>{t("registeredSquad")}</p>
             </div>
-            <span className="team-count">{players.length} players</span>
+            <span className="team-count">{players.length} {t("playerLabel")}</span>
           </div>
 
           {players.length > 0 ? (
@@ -377,7 +381,7 @@ export default function TeamPage({
                     </span>
                     <div>
                       <strong>{player.name}</strong>
-                      <small>{player.position ?? "Player"}</small>
+                      <small>{player.position ?? t("playerLabel")}</small>
                     </div>
                   </div>
                   <div className="team-match-score">
@@ -385,7 +389,7 @@ export default function TeamPage({
                       {player.jerseyNumber ? `#${player.jerseyNumber}` : "—"}
                     </strong>
                     <span className="team-match-status">
-                      {player.isDemo ? "Demo player" : "Player"}
+                      {player.isDemo ? t("demoPlayer") : t("playerLabel")}
                     </span>
                   </div>
                 </button>
@@ -393,7 +397,7 @@ export default function TeamPage({
             </div>
           ) : (
             <div className="team-empty-state">
-              No player records are available for this team yet.
+              {t("noPlayersTeam")}
             </div>
           )}
         </section>
@@ -402,22 +406,22 @@ export default function TeamPage({
         <section className="team-panel">
           <div className="team-panel-heading">
             <div>
-              <h2>Team statistics</h2>
-              <p>Calculated from completed matches only</p>
+              <h2>{t("teamStatistics")}</h2>
+              <p>{t("teamStatisticsNote")}</p>
             </div>
             <BarChart3 size={19} />
           </div>
 
           <div className="team-statistics-list">
             {[
-              ["Matches played", stats.played],
-              ["Wins", stats.wins],
-              ["Draws", stats.draws],
-              ["Losses", stats.losses],
-              ["Goals scored", stats.goalsFor],
-              ["Goals conceded", stats.goalsAgainst],
-              ["Goal difference", stats.goalDifference],
-              ["Points", stats.points],
+              [t("matchesPlayed"), stats.played],
+              [t("wins"), stats.wins],
+              [t("draws"), stats.draws],
+              [t("losses"), stats.losses],
+              [t("goalsScored"), stats.goalsFor],
+              [t("goalsConceded"), stats.goalsAgainst],
+              [t("leagueGoalDifference"), stats.goalDifference],
+              [t("points"), stats.points],
             ].map(([label, value]) => (
               <div className="team-summary-line" key={label}>
                 <span>{label}</span>

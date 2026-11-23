@@ -3,7 +3,9 @@ import type { SportType } from "./sports";
 export type {
   League,
   Match,
+  MatchRecord,
   MatchStatus,
+  Season,
   SportType,
 } from "./sports";
 
@@ -46,11 +48,13 @@ export type Team = {
   shortName?: string;
   country: string;
   city?: string;
+  province?: string;
   sport: SportType;
   logoUrl?: string;
 
   foundedYear?: number;
   venue?: string;
+  venueId?: string;
   coachName?: string;
   isActive?: boolean;
   isDemo?: boolean;
@@ -180,6 +184,7 @@ export type PlayerMatchPerformance = {
   assists: number;
   yellowCards: number;
   redCards: number;
+  rating?: number;
 
   isVerified: boolean;
   isDemo?: boolean;

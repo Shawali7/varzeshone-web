@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { leagueService } from "../services/leagueService";
-import type { Standing, PlayerStat } from "../data/leagueData";
-import type { League } from "../types";
-
+import type { ReactNode } from "react";
 import {
+  ArrowLeftRight,
+  BarChart3,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Heart,
   Newspaper,
@@ -13,6 +13,19 @@ import {
   Trophy,
   Users,
 } from "lucide-react";
+import { translate } from "../i18n";
+import type { AppLanguage, TranslationKey } from "../i18n";
+import { readPreference, writePreference } from "../utils/storage";
+import { leagueService } from "../services/leagueService";
+import type {
+  LeagueFixture,
+  LeagueSeasonData,
+  LeagueTeamStat,
+  PlayerStat,
+  Standing,
+} from "../data/leagueData";
+import { AVAILABLE_LEAGUE_SEASONS } from "../data/leagueData";
+import type { League } from "../types";
 
 type LeagueTab =
   | "overview"
@@ -24,368 +37,311 @@ type LeagueTab =
   | "seasons"
   | "news";
 
-const leagueNews = [
-  "برنامه هفته نهم لیگ برتر افغانستان اعلام شد",
-  "آمادگی تیم‌های هرات برای ادامه رقابت‌ها",
-  "جدول لیگ برتر افغانستان به‌روزرسانی شد",
-  "رقابت حساس کابل و پنجشیر در هفته نهم",
-  "تیم‌های قندهار و ننگرهار آماده دیدار مهم خود هستند",
-];
+type TranslateLeagueText = (key: TranslationKey) => string;
 
-const tabs: {
-  id: LeagueTab;
-  label: string;
-}[] = [
-  { id: "overview", label: "Overview" },
-  { id: "table", label: "Table" },
-  { id: "fixtures", label: "Fixtures" },
-  { id: "players", label: "Player stats" },
-  { id: "teams", label: "Team stats" },
-  { id: "transfers", label: "Transfers" },
-  { id: "seasons", label: "Seasons" },
-  { id: "news", label: "News" },
+const tabs: { id: LeagueTab; label: TranslationKey }[] = [
+  { id: "overview", label: "leagueOverview" },
+  { id: "table", label: "leagueTable" },
+  { id: "fixtures", label: "leagueFixtures" },
+  { id: "players", label: "leaguePlayerStats" },
+  { id: "teams", label: "leagueTeamStats" },
+  { id: "transfers", label: "leagueTransfers" },
+  { id: "seasons", label: "leagueSeasons" },
+  { id: "news", label: "leagueNews" },
 ];
 
 type LeaguePageProps = {
   league?: League;
+  language: AppLanguage;
+  tab?: LeagueTab;
+  season?: string;
+  onTabChange?: (tab: LeagueTab) => void;
+  onSeasonChange?: (season: string) => void;
 };
 
-function getLeagueProvince(name: string): string {
-  const value = name.toLowerCase();
-
-  if (value.includes("herat")) return "Herat Province";
-  if (value.includes("kabul")) return "Kabul Province";
-  if (value.includes("kandahar")) return "Kandahar Province";
-
-  return "Nationwide · Afghanistan";
-}
-
-function getLeagueSport(name: string): string {
-  return name.toLowerCase().includes("futsal")
-    ? "Futsal"
-    : "Football";
-}
+type LoadState = {
+  requestKey: string;
+  status: "ready" | "error";
+  data?: LeagueSeasonData;
+};
 
 export default function LeaguePage({
   league,
+  language,
+  tab,
+  season,
+  onTabChange,
+  onSeasonChange,
 }: LeaguePageProps) {
-  const leagueName = league?.name ?? "Afghanistan Premier League";
-  const leagueSport = league
-    ? league.sport === "futsal" ? "Futsal" : "Football"
-    : getLeagueSport(leagueName);
-  const [tab, setTab] =
-    useState<LeagueTab>("overview");
-
-  const [season, setSeason] =
-    useState("2026/2027");
-
-  const [followed, setFollowed] =
-    useState(false);
-
-  const [leagueData, setLeagueData] = useState<{
-    standings: Standing[];
-    fixtures: Awaited<ReturnType<typeof leagueService.getFixtures>>;
-    topRated: PlayerStat[];
-    topScorers: PlayerStat[];
-    topAssists: PlayerStat[];
-  }>({
-    standings: [],
-    fixtures: [],
-    topRated: [],
-    topScorers: [],
-    topAssists: [],
+  const [internalTab, setInternalTab] = useState<LeagueTab>("overview");
+  const [internalSeason, setInternalSeason] = useState<string>(AVAILABLE_LEAGUE_SEASONS[0].id);
+  const [retryCount, setRetryCount] = useState(0);
+  const [followState, setFollowState] = useState(() => ({
+    leagueId: league?.id ?? "",
+    value: league?.id
+      ? readPreference(`varzeshone-followed-league:${league.id}`) === "true"
+      : false,
+  }));
+  const [loadState, setLoadState] = useState<LoadState>({
+    requestKey: "",
+    status: "error",
   });
 
-  const [loadedScopeKey, setLoadedScopeKey] = useState<string | null>(null);
-  const [errorScopeKey, setErrorScopeKey] = useState<string | null>(null);
-
-  const scopeKey = `${league?.id ?? ""}:${season}`;
-  const isCurrentScopeLoaded = loadedScopeKey === scopeKey;
-  const isCurrentScopeError = errorScopeKey === scopeKey;
-  const leagueLoading = Boolean(league?.id) &&
-    !isCurrentScopeLoaded &&
-    !isCurrentScopeError;
-  const leagueError = isCurrentScopeError;
-
-  const displayedLeagueData = isCurrentScopeLoaded
-    ? leagueData
-    : {
-        standings: [],
-        fixtures: [],
-        topRated: [],
-        topScorers: [],
-        topAssists: [],
-      };
+  const t: TranslateLeagueText = (key) => translate(language, key);
+  const currentTab = tab ?? internalTab;
+  const currentSeason = AVAILABLE_LEAGUE_SEASONS.find((item) => item.id === season)?.id
+    ?? internalSeason;
+  const currentSeasonLabel = AVAILABLE_LEAGUE_SEASONS.find((item) => item.id === currentSeason)?.label
+    ?? AVAILABLE_LEAGUE_SEASONS[0].label;
+  const scopeKey = `${league?.id ?? ""}:${currentSeason}`;
+  const requestKey = `${scopeKey}:${retryCount}`;
+  const isCurrentRequest = loadState.requestKey === requestKey;
+  const isLoading = Boolean(league?.id) && !isCurrentRequest;
+  const isError = isCurrentRequest && loadState.status === "error";
+  const data = isCurrentRequest && loadState.status === "ready"
+    ? loadState.data
+    : undefined;
+  const sportLabel = league?.sport === "futsal" ? t("futsal") : t("football");
+  const country = league?.country ?? "Afghanistan";
+  const locationLabel = league?.province ? `${league.province} · ${country}` : country;
+  const currentLeagueId = league?.id ?? "";
+  const followed = followState.leagueId === currentLeagueId
+    ? followState.value
+    : currentLeagueId
+      ? readPreference(`varzeshone-followed-league:${currentLeagueId}`) === "true"
+      : false;
+  const changeTab = (nextTab: LeagueTab) => {
+    setInternalTab(nextTab);
+    onTabChange?.(nextTab);
+  };
+  const changeSeason = (nextSeason: string) => {
+    setInternalSeason(nextSeason);
+    onSeasonChange?.(nextSeason);
+  };
 
   useEffect(() => {
     let cancelled = false;
 
+    if (!league?.id) return;
 
-    async function loadLeagueData() {
-      if (!league?.id) {
-        return;
-      }
-
-      try {
-        const [
-          standings,
-          fixtures,
-          topRated,
-          topScorers,
-          topAssists,
-        ] = await Promise.all([
-          leagueService.getStandings(league.id, season),
-          leagueService.getFixtures(league.id, season),
-          leagueService.getTopRated(league.id, season),
-          leagueService.getTopScorers(league.id, season),
-          leagueService.getTopAssists(league.id, season),
-        ]);
-
+    leagueService.getSeasonData(league.id, currentSeason)
+      .then((result) => {
         if (!cancelled) {
-          setLeagueData({
-            standings,
-            fixtures,
-            topRated,
-            topScorers,
-            topAssists,
-          });
-          setLoadedScopeKey(scopeKey);
-          setErrorScopeKey(null);
+          setLoadState({ requestKey, status: "ready", data: result });
         }
-      } catch (error) {
+      })
+      .catch((error: unknown) => {
         console.error("Failed to load league data:", error);
-
         if (!cancelled) {
-          setErrorScopeKey(scopeKey);
+          setLoadState({ requestKey, status: "error" });
         }
-      }
-    }
-
-    loadLeagueData();
+      });
 
     return () => {
       cancelled = true;
     };
- }, [scopeKey, league?.id, season]);
+  }, [league?.id, requestKey, currentSeason]);
 
-  const currentSeason =
-    useMemo(
-      () => season,
-      [season],
-    );
+  const news = useMemo(() => data?.news ?? [], [data?.news]);
+  const standings = data?.standings ?? [];
+  const fixtures = data?.fixtures ?? [];
+  const playerStats = data?.topRated ?? [];
+  const scorers = data?.topScorers ?? [];
+  const assists = data?.topAssists ?? [];
+
+  const changeFollowed = () => {
+    const nextFollowed = !followed;
+    setFollowState({ leagueId: currentLeagueId, value: nextFollowed });
+    if (league?.id) {
+      writePreference(
+        `varzeshone-followed-league:${league.id}`,
+        String(nextFollowed),
+      );
+    }
+  };
 
   return (
-    <main className="league-page">
-      {leagueLoading && (
-        <p className="league-data-status">Loading league data...</p>
+    <main className="league-page" dir={language === "en" ? "ltr" : "rtl"}>
+      {isLoading && (
+        <p className="league-data-status" role="status">{t("leagueLoading")}</p>
       )}
-
-      {leagueError && (
+      {isError && (
         <p className="league-data-status" role="alert">
-          Could not load league data.
+          {t("leagueLoadError")}
+          <button type="button" className="text-button" onClick={() => setRetryCount((count) => count + 1)}>
+            {t("retry")}
+          </button>
         </p>
       )}
+
       <section className="league-hero card">
         <div className="league-identity">
           <div className="league-logo">
-            <Trophy size={32} />
+            {league?.logoUrl ? (
+              <img src={league.logoUrl} alt="" />
+            ) : (
+              <Trophy size={32} aria-hidden="true" />
+            )}
           </div>
-
           <div className="league-information">
             <div className="league-breadcrumb">
-              Afghanistan
-              <ChevronRight size={13} />
-              {leagueSport}
+              <span>{locationLabel}</span>
+              <ChevronRight size={13} aria-hidden="true" />
+              <span>{sportLabel}</span>
             </div>
-
-            <h1>{leagueName}</h1>
-
+            <h1>{league?.name ?? t("leagueDetails")}</h1>
             <p className="league-location">
-              {getLeagueProvince(leagueName)}
-              <span className="league-meta-divider">·</span>
-              {leagueSport}
+              {locationLabel}
+              <span className="league-meta-divider" aria-hidden="true">·</span>
+              {sportLabel}
+              <span className="league-demo-badge">{t("leagueDemoData")}</span>
             </p>
           </div>
         </div>
 
         <div className="league-season-control">
-          <label htmlFor="league-season">Season</label>
+          <label htmlFor="league-season">{t("leagueSeason")}</label>
           <div className="season-select-wrap">
             <select
               id="league-season"
-              value={season}
-              onChange={(event) => setSeason(event.target.value)}
-              aria-label="Select season"
+              value={currentSeason}
+              onChange={(event) => changeSeason(event.target.value)}
+              aria-label={t("leagueSelectSeason")}
             >
-              <option value="2026/2027">2026/2027</option>
-              <option value="2025/2026">2025/2026</option>
-              <option value="2024/2025">2024/2025</option>
+              {AVAILABLE_LEAGUE_SEASONS.map((availableSeason) => (
+                <option key={availableSeason.id} value={availableSeason.id}>
+                  {availableSeason.label}
+                </option>
+              ))}
             </select>
-            <ChevronDown size={15} />
+            <ChevronDown size={15} aria-hidden="true" />
           </div>
         </div>
 
         <div className="league-actions">
           <button
+            type="button"
             className={`follow-button ${followed ? "followed" : ""}`}
-            onClick={() => setFollowed((value) => !value)}
+            onClick={changeFollowed}
+            aria-pressed={followed}
           >
-            <Heart
-              size={16}
-              fill={followed ? "currentColor" : "none"}
-            />
-            {followed ? "Following" : "Follow"}
+            <Heart size={16} fill={followed ? "currentColor" : "none"} />
+            {followed ? t("leagueFollowing") : t("leagueFollow")}
           </button>
         </div>
       </section>
 
       <section className="league-toolbar card">
-        <nav className="league-tabs">
+        <nav className="league-tabs" role="tablist" aria-label={t("leagueDetails")}>
           {tabs.map((item) => (
             <button
+              type="button"
               key={item.id}
-              className={
-                tab === item.id
-                  ? "active"
-                  : ""
-              }
-              onClick={() =>
-                setTab(item.id)
-              }
+              id={`league-tab-${item.id}`}
+              role="tab"
+              aria-selected={currentTab === item.id}
+              aria-controls="league-tab-panel"
+              tabIndex={currentTab === item.id ? 0 : -1}
+              className={currentTab === item.id ? "active" : ""}
+              onClick={() => changeTab(item.id)}
             >
-              {item.label}
+              {t(item.label)}
             </button>
           ))}
         </nav>
       </section>
 
-      {tab === "overview" && (
-        <OverviewContent
-          season={currentSeason}
-          onOpenTab={setTab}
-          standings={displayedLeagueData.standings}
-          fixtures={displayedLeagueData.fixtures}
-          topRated={displayedLeagueData.topRated}
-          topScorers={displayedLeagueData.topScorers}
-          topAssists={displayedLeagueData.topAssists}
-        />
-      )}
-
-      {tab === "table" && (
-        <section className="league-content-grid">
-          <StandingsCard
-            full
-            standings={displayedLeagueData.standings}
-            season={currentSeason}
-          />
-        </section>
-      )}
-
-      {tab === "fixtures" && (
-        <section className="league-content-grid">
-          <FixturesCard full fixtures={displayedLeagueData.fixtures} />
-        </section>
-      )}
-
-      {tab === "players" && (
-        <section className="league-content-grid">
-          <div className="league-main-column">
-            <TopPlayersCard
-              title="Top rated"
-              icon={<Star size={17} />}
-              players={displayedLeagueData.topRated}
-              ratingMode
+      {!isLoading && !isError && (
+        <div
+          id="league-tab-panel"
+          className="league-tab-panel"
+          role="tabpanel"
+          aria-labelledby={`league-tab-${currentTab}`}
+          tabIndex={0}
+        >
+          {currentTab === "overview" && (
+            <OverviewContent
+              season={currentSeasonLabel}
+              standings={standings}
+              fixtures={fixtures}
+              playerStats={playerStats}
+              scorers={scorers}
+              assists={assists}
+              news={news}
+              teamOfWeek={data?.teamOfWeek ?? []}
+              onOpenTab={changeTab}
+              t={t}
+              language={language}
             />
-          </div>
-
-          <aside className="league-side-column">
-            <TopPlayersCard
-              title="Top scorers"
-              icon={<Target size={17} />}
-              players={displayedLeagueData.topScorers}
-            />
-
-            <TopPlayersCard
-              title="Top assists"
-              icon={<Users size={17} />}
-              players={displayedLeagueData.topAssists}
-            />
-          </aside>
-        </section>
-      )}
-
-      {tab === "teams" && (
-        <section className="league-content-grid">
-          <StandingsCard
-            full
-            standings={displayedLeagueData.standings}
-            season={currentSeason}
-          />
-        </section>
-      )}
-
-      {tab === "transfers" && (
-        <EmptyLeagueSection
-          icon={<Users size={21} />}
-          title="Transfer Center"
-          description="Transfer information for this competition will appear here."
-        />
-      )}
-
-      {tab === "seasons" && (
-        <section className="league-content-grid">
-          <div className="league-main-column">
-            <section className="card league-section">
-              <div className="league-section-header">
-                <div>
-                  <span className="section-kicker">Competition history</span>
-                  <h2>League seasons</h2>
-                </div>
-              </div>
-              <div className="season-history-list">
-                <p className="season-history-note">Demo data — sample season results</p>
-                {[
-                  { season: "2025/2026", winner: "Demo Champion FC", runnerUp: "Demo United FC" },
-                  { season: "2024/2025", winner: "Sample Stars FC", runnerUp: "Sample United FC" },
-                  { season: "2023/2024", winner: "Demo United FC", runnerUp: "Demo Champion FC" },
-                  { season: "2022/2023", winner: "Sample United FC", runnerUp: "Sample Stars FC" },
-                ].map((item) => (
-                  <button
-                    type="button"
-                    key={item.season}
-                    className={`season-history-row ${item.season === season ? "active" : ""}`}
-                    onClick={() => setSeason(item.season)}
-                  >
-                    <div className="season-history-year">
-                      <strong>{item.season}</strong>
-                      <span>Season</span>
-                    </div>
-                    <div className="season-history-result">
-                      <span className="season-history-label">Winner</span>
-                      <strong>{item.winner}</strong>
-                    </div>
-                    <div className="season-history-result">
-                      <span className="season-history-label">Runner-up</span>
-                      <strong>{item.runnerUp}</strong>
-                    </div>
-                    <ChevronRight size={17} />
-                  </button>
-                ))}
-              </div>
+          )}
+          {currentTab === "table" && (
+            <section className="league-content-grid">
+              <StandingsCard full season={currentSeasonLabel} standings={standings} t={t} />
             </section>
-          </div>
-        </section>
-      )}
-      {tab === "news" && (
-        <section className="league-content-grid">
-          <div className="league-main-column">
-            <NewsCard full />
-          </div>
-
-          <aside className="league-side-column">
-            <TeamOfWeekCard />
-          </aside>
-        </section>
+          )}
+          {currentTab === "fixtures" && (
+            <section className="league-content-grid">
+              <FixturesCard full fixtures={fixtures} t={t} language={language} />
+            </section>
+          )}
+          {currentTab === "players" && (
+            <section className="league-content-grid">
+              <div className="league-main-column">
+                <TopPlayersCard
+                  title={t("leagueTopRated")}
+                  icon={<Star size={17} />}
+                  players={playerStats}
+                  ratingMode
+                  t={t}
+                />
+              </div>
+              <aside className="league-side-column">
+                <TopPlayersCard
+                  title={t("leagueTopScorers")}
+                  icon={<Target size={17} />}
+                  players={scorers}
+                  t={t}
+                />
+                <TopPlayersCard
+                  title={t("leagueTopAssists")}
+                  icon={<Users size={17} />}
+                  players={assists}
+                  t={t}
+                />
+              </aside>
+            </section>
+          )}
+          {currentTab === "teams" && (
+            <section className="league-content-grid">
+                  <TeamStatsCard teamStats={data?.teamStats ?? []} t={t} />
+            </section>
+          )}
+          {currentTab === "transfers" && (
+            <section className="league-content-grid">
+              <TransfersCard transfers={data?.transfers ?? []} t={t} />
+            </section>
+          )}
+          {currentTab === "seasons" && (
+            <section className="league-content-grid">
+              <SeasonsCard
+                currentSeason={currentSeason}
+                seasons={data?.seasons ?? []}
+                onSelectSeason={changeSeason}
+                t={t}
+              />
+            </section>
+          )}
+          {currentTab === "news" && (
+            <section className="league-content-grid">
+              <div className="league-main-column">
+                <NewsCard full news={news} language={language} t={t} />
+              </div>
+              <aside className="league-side-column">
+                <TeamOfWeekCard players={data?.teamOfWeek ?? []} t={t} />
+              </aside>
+            </section>
+          )}
+        </div>
       )}
     </main>
   );
@@ -393,67 +349,75 @@ export default function LeaguePage({
 
 function OverviewContent({
   season,
-  onOpenTab,
   standings,
   fixtures,
-  topRated,
-  topScorers,
-  topAssists,
+  playerStats,
+  scorers,
+  assists,
+  news,
+  teamOfWeek,
+  onOpenTab,
+  t,
+  language,
 }: {
   season: string;
-  onOpenTab: (tab: LeagueTab) => void;
   standings: Standing[];
-  fixtures: Awaited<ReturnType<typeof leagueService.getFixtures>>;
-  topRated: PlayerStat[];
-  topScorers: PlayerStat[];
-  topAssists: PlayerStat[];
+  fixtures: LeagueFixture[];
+  playerStats: PlayerStat[];
+  scorers: PlayerStat[];
+  assists: PlayerStat[];
+  news: LeagueSeasonData["news"];
+  teamOfWeek: LeagueSeasonData["teamOfWeek"];
+  onOpenTab: (tab: LeagueTab) => void;
+  t: TranslateLeagueText;
+  language: AppLanguage;
 }) {
   return (
     <div className="league-content-grid">
       <div className="league-main-column">
         <StandingsCard
-          standings={standings}
           season={season}
-          onFullTable={() =>
-            onOpenTab("table")
-          }
+          standings={standings}
+          onFullTable={() => onOpenTab("table")}
+          t={t}
         />
-
         <FixturesCard
           fixtures={fixtures}
-          onAllFixtures={() =>
-            onOpenTab("fixtures")
-          }
+          onAllFixtures={() => onOpenTab("fixtures")}
+          t={t}
+          language={language}
         />
-
         <NewsCard
-          onViewAll={() =>
-            onOpenTab("news")
-          }
+          news={news}
+          language={language}
+          onViewAll={() => onOpenTab("news")}
+          t={t}
         />
       </div>
-
       <aside className="league-side-column">
         <TopPlayersCard
-          title="Top rated"
+          title={t("leagueTopRated")}
           icon={<Star size={17} />}
-          players={topRated}
+          players={playerStats}
           ratingMode
+          onViewAll={() => onOpenTab("players")}
+          t={t}
         />
-
         <TopPlayersCard
-          title="Top scorers"
+          title={t("leagueTopScorers")}
           icon={<Target size={17} />}
-          players={topScorers}
+          players={scorers}
+          onViewAll={() => onOpenTab("players")}
+          t={t}
         />
-
         <TopPlayersCard
-          title="Top assists"
+          title={t("leagueTopAssists")}
           icon={<Users size={17} />}
-          players={topAssists}
+          players={assists}
+          onViewAll={() => onOpenTab("players")}
+          t={t}
         />
-
-        <TeamOfWeekCard />
+        <TeamOfWeekCard players={teamOfWeek} t={t} />
       </aside>
     </div>
   );
@@ -464,168 +428,82 @@ function StandingsCard({
   season,
   standings,
   onFullTable,
+  t,
 }: {
   full?: boolean;
   season: string;
   standings: Standing[];
   onFullTable?: () => void;
+  t: TranslateLeagueText;
 }) {
+  const columns: { label: TranslationKey; value: (row: Standing) => string | number }[] = [
+    { label: "leaguePlayed", value: (row) => row.played },
+    { label: "leagueWins", value: (row) => row.won },
+    { label: "leagueDraws", value: (row) => row.drawn },
+    { label: "leagueLosses", value: (row) => row.lost },
+    { label: "leagueGoalsFor", value: (row) => row.goalsFor },
+    { label: "leagueGoalsAgainst", value: (row) => row.goalsAgainst },
+    { label: "leagueGoalDifference", value: (row) => row.gd > 0 ? `+${row.gd}` : row.gd },
+    { label: "leaguePoints", value: (row) => row.points },
+  ];
+
   return (
-    <section
-      className={`card league-section ${
-        full
-          ? "full-width-section"
-          : ""
-      }`}
-    >
+    <section className={`card league-section ${full ? "full-width-section" : ""}`}>
       <div className="league-section-header">
         <div>
-          <span className="section-kicker">
-            {season}
-          </span>
-
-          <h2>Standings</h2>
+          <span className="section-kicker">{season}</span>
+          <h2>{t("leagueStandings")}</h2>
         </div>
-
         {!full && (
-          <button
-            className="text-button"
-            onClick={onFullTable}
-          >
-            Full table
-            <ChevronRight size={14} />
+          <button type="button" className="text-button" onClick={onFullTable}>
+            {t("leagueFullTable")} <ChevronRight size={14} aria-hidden="true" />
           </button>
         )}
       </div>
-
       <div className="table-wrapper">
         <table className="standings-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Team</th>
-              <th>PL</th>
-              <th>W</th>
-              <th>D</th>
-              <th>L</th>
-              <th>GF</th>
-              <th>GA</th>
-              <th>GD</th>
-              <th>PTS</th>
-              <th>Form</th>
-              <th>Next</th>
+              <th scope="col">#</th>
+              <th scope="col">{t("team")}</th>
+              {columns.map((column) => <th scope="col" key={column.label}>{t(column.label)}</th>)}
+              <th scope="col">{t("leagueForm")}</th>
             </tr>
           </thead>
-
           <tbody>
-            {standings.map(
-              (team) => (
-                <tr
-                  key={team.team}
-                >
-                  <td>
-                    <span
-                      className={`position position-${team.position}`}
-                    >
-                      {team.position}
-                    </span>
-                  </td>
-
-                  <td>
-                    <div className="standing-team">
-                      <span className="team-logo">
-                        {team.team.charAt(
-                          0,
-                        )}
-                      </span>
-
-                      <strong>
-                        {team.team}
-                      </strong>
-                    </div>
-                  </td>
-
-                  <td>
-                    {team.played}
-                  </td>
-
-                  <td>
-                    {team.won}
-                  </td>
-
-                  <td>
-                    {team.drawn}
-                  </td>
-
-                  <td>
-                    {team.lost}
-                  </td>
-
-                  <td>
-                    {team.goalsFor}
-                  </td>
-
-                  <td>
-                    {team.goalsAgainst}
-                  </td>
-
-                  <td>
-                    {team.gd > 0
-                      ? `+${team.gd}`
-                      : team.gd}
-                  </td>
-
-                  <td>
-                    <strong>
-                      {team.points}
-                    </strong>
-                  </td>
-
-                  <td>
-                    <div className="form-list">
-                      {team.form.map(
-                        (
-                          result,
-                          index,
-                        ) => (
-                          <span
-                            key={`${team.team}-${index}`}
-                            className={`form-${result.toLowerCase()}`}
-                          >
-                            {result}
-                          </span>
-                        ),
-                      )}
-                    </div>
-                  </td>
-
-                  <td>
-                    <span className="next-team">
-                      {team.next}
-                    </span>
-                  </td>
-                </tr>
-              ),
+            {standings.length === 0 && (
+              <tr><td colSpan={11}><span role="status">{t("leagueNoStandings")}</span></td></tr>
             )}
+            {standings.map((row) => (
+              <tr key={row.teamId}>
+                <td><span className={`position ${row.position <= 3 ? "highlight" : ""}`}>{row.position}</span></td>
+                <td>
+                  <div className="standing-team">
+                    <span className="team-logo" aria-hidden="true">{row.team.charAt(0)}</span>
+                    <strong>{row.team}</strong>
+                  </div>
+                </td>
+                {columns.map((column) => (
+                  <td key={column.label}>{column.label === "leaguePoints" ? <strong>{column.value(row)}</strong> : column.value(row)}</td>
+                ))}
+                <td>
+                  <div className="form-list" aria-label={t("leagueForm")}>
+                    {row.form.map((result, index) => (
+                      <span key={`${row.teamId}-${index}`} className={`form-${result.toLowerCase()}`}>
+                        {t(result === "W" ? "leagueFormWin" : result === "D" ? "leagueFormDraw" : "leagueFormLoss")}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-
       <div className="standings-legend">
-        <span>
-          <i className="legend-dot champions" />
-          Championship qualification
-        </span>
-
-        <span>
-          <i className="legend-dot continental" />
-          Continental qualification
-        </span>
-
-        <span>
-          <i className="legend-dot relegation" />
-          Relegation zone
-        </span>
+        <span><i className="legend-dot champions" />{t("leagueChampionshipQualification")}</span>
+        <span><i className="legend-dot continental" />{t("leagueContinentalQualification")}</span>
+        <span><i className="legend-dot relegation" />{t("leagueRelegationZone")}</span>
       </div>
     </section>
   );
@@ -635,87 +513,89 @@ function FixturesCard({
   full = false,
   fixtures,
   onAllFixtures,
+  t,
+  language,
 }: {
   full?: boolean;
-  fixtures: Awaited<ReturnType<typeof leagueService.getFixtures>>;
+  fixtures: LeagueFixture[];
   onAllFixtures?: () => void;
+  t: TranslateLeagueText;
+  language: AppLanguage;
 }) {
+  const rounds = useMemo(
+    () => [...new Set(fixtures.map((fixture) => fixture.round))].sort((a, b) => a - b),
+    [fixtures],
+  );
+  const [selectedRound, setSelectedRound] = useState<number | null>(null);
+  const currentRound = selectedRound !== null && rounds.includes(selectedRound)
+    ? selectedRound
+    : rounds[0] ?? 0;
+  const activeRoundIndex = rounds.indexOf(currentRound);
+  const roundFixtures = fixtures.filter((fixture) => fixture.round === currentRound);
+  const locale = language === "en" ? "en-US" : language;
+  const dateFormatter = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" });
+  const dayFormatter = new Intl.DateTimeFormat(locale, { weekday: "long" });
+
   return (
-    <section
-      className={`card league-section ${
-        full
-          ? "full-width-section"
-          : ""
-      }`}
-    >
+    <section className={`card league-section ${full ? "full-width-section" : ""}`}>
       <div className="league-section-header">
         <div>
-          <span className="section-kicker">
-            Round 9
-          </span>
-
-          <h2>Fixtures</h2>
+          <span className="section-kicker">{t("leagueFixtures")}</span>
+          <h2>{t("leagueFixtures")}</h2>
         </div>
-
         {!full && (
-          <button
-            className="text-button"
-            onClick={onAllFixtures}
-          >
-            All fixtures
-            <ChevronRight size={14} />
+          <button type="button" className="text-button" onClick={onAllFixtures}>
+            {t("leagueAllFixtures")} <ChevronRight size={14} aria-hidden="true" />
           </button>
         )}
       </div>
-
-      <div className="fixture-round">
-        <button>
-          <ChevronRight size={15} />
-        </button>
-
-        <strong>
-          Round 9
-        </strong>
-
-        <button>
-          <ChevronRight size={15} />
-        </button>
-      </div>
-
-      <div className="fixtures-list">
-        {fixtures.map(
-          (fixture) => (
-            <article
-              className="fixture-row"
-              key={`${fixture.home}-${fixture.away}`}
+      {fixtures.length === 0 ? (
+        <p className="league-section-empty" role="status">{t("leagueNoFixtures")}</p>
+      ) : (
+        <>
+          <div className="fixture-round">
+            <button
+              type="button"
+              aria-label={t("leaguePreviousRound")}
+              disabled={activeRoundIndex <= 0}
+              onClick={() => setSelectedRound(rounds[activeRoundIndex - 1])}
             >
-              <div className="fixture-date">
-                <strong>
-                  {fixture.date}
-                </strong>
-
-                <span>
-                  {fixture.day}
-                </span>
-              </div>
-
-              <div className="fixture-teams">
-                <span>
-                  {fixture.home}
-                </span>
-
-                <span>
-                  {fixture.away}
-                </span>
-              </div>
-
-              <div className="fixture-time">
-                {fixture.time}
-              </div>
-            </article>
-          ),
-        )}
-      </div>
+              <ChevronLeft size={15} aria-hidden="true" />
+            </button>
+            <strong>{t("leagueRound")} {currentRound}</strong>
+            <button
+              type="button"
+              aria-label={t("leagueNextRound")}
+              disabled={activeRoundIndex < 0 || activeRoundIndex >= rounds.length - 1}
+              onClick={() => setSelectedRound(rounds[activeRoundIndex + 1])}
+            >
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="fixtures-list">
+            {roundFixtures.map((fixture) => {
+              const date = new Date(`${fixture.date}T12:00:00`);
+              return (
+                <article className="fixture-row" key={fixture.id}>
+                  <div className="fixture-date">
+                    <strong>{dateFormatter.format(date)}</strong>
+                    <span>{dayFormatter.format(date)}</span>
+                  </div>
+                  <div className="fixture-teams">
+                    <span>{fixture.home}</span>
+                    <span>{fixture.away}</span>
+                  </div>
+                  <div className="fixture-time">
+                    {fixture.status === "FT"
+                      ? `${fixture.homeScore ?? 0} - ${fixture.awayScore ?? 0}`
+                      : fixture.time}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -725,65 +605,147 @@ function TopPlayersCard({
   icon,
   players,
   ratingMode = false,
+  onViewAll,
+  t,
 }: {
   title: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   players: PlayerStat[];
   ratingMode?: boolean;
+  onViewAll?: () => void;
+  t: TranslateLeagueText;
 }) {
   return (
     <section className="card league-section">
       <div className="league-section-header compact">
-        <div className="section-title-with-icon">
-          {icon}
-          <h2>{title}</h2>
-        </div>
-
-        <button className="text-button">
-          All
-        </button>
+        <div className="section-title-with-icon">{icon}<h2>{title}</h2></div>
+        {onViewAll && <button type="button" className="text-button" onClick={onViewAll}>{t("leagueViewAll")}</button>}
       </div>
-
       <div className="player-list">
-        {players.map(
-          (
-            player,
-            index,
-          ) => (
-            <div
-              className="player-row"
-              key={player.name}
-            >
-              <span className="player-rank">
-                {index + 1}
-              </span>
+        {players.length === 0 && <p className="league-section-empty" role="status">{t("leagueNoPlayerStats")}</p>}
+        {players.map((player, index) => (
+          <div className="player-row" key={player.playerId}>
+            <span className="player-rank">{index + 1}</span>
+            <span className="player-avatar" aria-hidden="true">{player.name.charAt(0)}</span>
+            <div className="player-info"><strong>{player.name}</strong><span>{player.team}</span></div>
+            <strong className="player-value">
+              {ratingMode ? player.rating?.toFixed(1) : player.value}
+            </strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
-              <span className="player-avatar">
-                {player.name.charAt(
-                  0,
-                )}
-              </span>
+function TeamStatsCard({
+  teamStats,
+  t,
+}: {
+  teamStats: LeagueTeamStat[];
+  t: TranslateLeagueText;
+}) {
+  return (
+    <section className="card league-section full-width-section">
+      <div className="league-section-header">
+        <div>
+          <span className="section-kicker">{t("leagueDemoData")}</span>
+          <div className="section-title-with-icon"><BarChart3 size={17} /><h2>{t("leagueTeamStats")}</h2></div>
+        </div>
+      </div>
+      <div className="table-wrapper">
+        <table className="standings-table team-stats-table">
+          <thead><tr>
+            <th scope="col">#</th>
+            <th scope="col">{t("team")}</th>
+            <th scope="col">{t("leaguePlayed")}</th>
+            <th scope="col">{t("leagueWins")}</th>
+            <th scope="col">{t("leagueWinRate")}</th>
+            <th scope="col">{t("leagueGoalsFor")}</th>
+            <th scope="col">{t("leagueGoalsAgainst")}</th>
+            <th scope="col">{t("leagueGoalDifference")}</th>
+            <th scope="col">{t("leagueCleanSheets")}</th>
+            <th scope="col">{t("leaguePoints")}</th>
+          </tr></thead>
+          <tbody>
+            {teamStats.map((row, index) => (
+              <tr key={row.teamId}>
+                <td>{index + 1}</td>
+                <td><div className="standing-team"><span className="team-logo" aria-hidden="true">{row.team.charAt(0)}</span><strong>{row.team}</strong></div></td>
+                <td>{row.played}</td>
+                <td>{row.wins}</td>
+                <td>{row.played ? `${Math.round((row.wins / row.played) * 100)}%` : "—"}</td>
+                <td>{row.goalsFor}</td>
+                <td>{row.goalsAgainst}</td>
+                <td>{row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}</td>
+                <td>{row.cleanSheets}</td>
+                <td><strong>{row.points}</strong></td>
+              </tr>
+            ))}
+            {teamStats.length === 0 && <tr><td colSpan={10} role="status">{t("leagueNoStandings")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
-              <div className="player-info">
-                <strong>
-                  {player.name}
-                </strong>
+function TransfersCard({
+  transfers,
+  t,
+}: {
+  transfers: LeagueSeasonData["transfers"];
+  t: TranslateLeagueText;
+}) {
+  return (
+    <section className="card league-section full-width-section">
+      <div className="league-section-header">
+        <div className="section-title-with-icon"><ArrowLeftRight size={17} /><h2>{t("leagueTransfers")}</h2></div>
+      </div>
+      <div className="league-transfer-list">
+        {transfers.map((transfer) => (
+          <article className="league-transfer-row" key={transfer.id}>
+            <span className="player-avatar" aria-hidden="true">{transfer.player.charAt(0)}</span>
+            <div className="player-info"><strong>{transfer.player}</strong><span>{transfer.fromTeam} <span aria-hidden="true">→</span> {transfer.toTeam}</span></div>
+            <span className="league-transfer-type">{t(transfer.type === "Loan" ? "leagueLoan" : "leaguePermanent")}</span>
+          </article>
+        ))}
+        {transfers.length === 0 && <p className="league-section-empty" role="status">{t("leagueNoTransfers")}</p>}
+      </div>
+    </section>
+  );
+}
 
-                <span>
-                  {player.team}
-                </span>
-              </div>
-
-              <strong className="player-value">
-                {ratingMode
-                  ? player.rating?.toFixed(
-                      2,
-                    )
-                  : player.value}
-              </strong>
-            </div>
-          ),
-        )}
+function SeasonsCard({
+  currentSeason,
+  seasons,
+  onSelectSeason,
+  t,
+}: {
+  currentSeason: string;
+  seasons: LeagueSeasonData["seasons"];
+  onSelectSeason: (season: string) => void;
+  t: TranslateLeagueText;
+}) {
+  return (
+    <section className="card league-section full-width-section">
+      <div className="league-section-header">
+        <div><span className="section-kicker">{t("leagueDemoData")}</span><h2>{t("leagueCompetitionHistory")}</h2></div>
+      </div>
+      <div className="season-history-list">
+        {seasons.map((item) => (
+          <button
+            type="button"
+            key={item.seasonId}
+            className={`season-history-row ${item.seasonId === currentSeason ? "active" : ""}`}
+            onClick={() => onSelectSeason(item.seasonId)}
+          >
+            <div className="season-history-year"><strong>{item.season}</strong><span>{t("leagueSeason")}</span></div>
+            <div className="season-history-result"><span className="season-history-label">{t("leagueWinner")}</span><strong>{item.seasonId === AVAILABLE_LEAGUE_SEASONS[0].id ? t("leagueInProgress") : item.winner ?? "—"}</strong></div>
+            <div className="season-history-result"><span className="season-history-label">{t("leagueRunnerUp")}</span><strong>{item.seasonId === AVAILABLE_LEAGUE_SEASONS[0].id ? "—" : item.runnerUp ?? "—"}</strong></div>
+            <ChevronRight size={17} aria-hidden="true" />
+          </button>
+        ))}
       </div>
     </section>
   );
@@ -791,170 +753,77 @@ function TopPlayersCard({
 
 function NewsCard({
   full = false,
+  news,
+  language,
   onViewAll,
+  t,
 }: {
   full?: boolean;
+  news: LeagueSeasonData["news"];
+  language: AppLanguage;
   onViewAll?: () => void;
+  t: TranslateLeagueText;
 }) {
   return (
-    <section
-      className={`card league-section ${
-        full
-          ? "full-width-section"
-          : ""
-      }`}
-    >
+    <section className={`card league-section ${full ? "full-width-section" : ""}`}>
       <div className="league-section-header">
-        <div className="section-title-with-icon">
-          <Newspaper size={17} />
-          <h2>News</h2>
-        </div>
-
-        {!full && (
-          <button
-            className="text-button"
-            onClick={onViewAll}
-          >
-            View all
-          </button>
-        )}
+        <div className="section-title-with-icon"><Newspaper size={17} /><h2>{t("leagueNews")}</h2></div>
+        {!full && <button type="button" className="text-button" onClick={onViewAll}>{t("leagueViewAll")}</button>}
       </div>
-
       <div className="league-news-list">
-        {leagueNews.map(
-          (
-            item,
-            index,
-          ) => (
-            <article
-              className="league-news-item"
-              key={item}
-            >
-              <div className="news-number">
-                {index + 1}
-              </div>
-
-              <div>
-                <h3>
-                  {item}
-                </h3>
-
-                <span>
-                  VarzeshOne ·{" "}
-                  {index + 1} hr. ago
-                </span>
-              </div>
-            </article>
-          ),
-        )}
+        {news.map((item, index) => (
+          <article className="league-news-item" key={item.id}>
+            <div className="news-number">{index + 1}</div>
+            <div>
+              <h3>{item.title[language]}</h3>
+              <span>VarzeshOne · {t("leagueDemoData")}</span>
+            </div>
+          </article>
+        ))}
+        {news.length === 0 && <p className="league-section-empty" role="status">{t("noNews")}</p>}
       </div>
     </section>
   );
 }
 
-function TeamOfWeekCard() {
+function TeamOfWeekCard({
+  players,
+  t,
+}: {
+  players: LeagueSeasonData["teamOfWeek"];
+  t: TranslateLeagueText;
+}) {
+  const goalkeepers = players.filter((player) => player.position === "GK");
+  const defenders = players.filter((player) => player.position === "DF");
+  const midfielders = players.filter((player) => player.position === "MF");
+  const forwards = players.filter((player) => player.position === "FW");
+  const positionLabels = { GK: "GK", DF: "DF", MF: "MF", FW: "FW" };
+
+  const renderPlayer = (player: LeagueSeasonData["teamOfWeek"][number]) => (
+    <div className="formation-player" key={player.playerId}>
+      <span>{positionLabels[player.position]}</span>
+      <strong>{player.name}</strong>
+    </div>
+  );
+
   return (
     <section className="card league-section team-of-week">
       <div className="league-section-header compact">
-        <div className="section-title-with-icon">
-          <Trophy size={17} />
-          <h2>
-            Team of the Week
-          </h2>
-        </div>
+        <div className="section-title-with-icon"><Trophy size={17} /><h2>{t("leagueTeamOfWeek")}</h2></div>
       </div>
-
-      <div className="team-of-week-visual">
-        <div className="formation">
-          <div className="formation-player goalkeeper">
-            <span>GK</span>
-            <strong>
-              Rahimi
-            </strong>
-          </div>
-
-          <div className="formation-row">
-            <div className="formation-player">
-              <span>DF</span>
-              <strong>
-                Ahmadi
-              </strong>
-            </div>
-
-            <div className="formation-player">
-              <span>DF</span>
-              <strong>
-                Noori
-              </strong>
-            </div>
-
-            <div className="formation-player">
-              <span>DF</span>
-              <strong>
-                Karimi
-              </strong>
-            </div>
-          </div>
-
-          <div className="formation-row">
-            <div className="formation-player">
-              <span>MF</span>
-              <strong>
-                Waziri
-              </strong>
-            </div>
-
-            <div className="formation-player">
-              <span>MF</span>
-              <strong>
-                Akbari
-              </strong>
-            </div>
-
-            <div className="formation-player">
-              <span>MF</span>
-              <strong>
-                Noor
-              </strong>
-            </div>
-          </div>
-
-          <div className="formation-player striker">
-            <span>FW</span>
-            <strong>
-              Rahimi
-            </strong>
+      <p className="league-demo-note">{t("leagueDemoData")}</p>
+      {players.length === 0 ? (
+        <p className="league-section-empty" role="status">{t("leagueNoPlayerStats")}</p>
+      ) : (
+        <div className="team-of-week-visual">
+          <div className="formation">
+            {goalkeepers.map(renderPlayer)}
+            <div className="formation-row">{defenders.map(renderPlayer)}</div>
+            <div className="formation-row">{midfielders.map(renderPlayer)}</div>
+            <div className="formation-row">{forwards.map(renderPlayer)}</div>
           </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
-
-function EmptyLeagueSection({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <section className="card league-empty">
-      <div className="empty-icon">
-        {icon}
-      </div>
-
-      <h2>{title}</h2>
-
-      <p>{description}</p>
-    </section>
-  );
-}
-
-
-
-
-
-

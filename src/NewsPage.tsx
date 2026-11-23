@@ -6,6 +6,8 @@ import {
   Search,
   TrendingUp,
 } from "lucide-react";
+import { translate } from "./i18n";
+import type { AppLanguage, TranslationKey } from "./i18n";
 
 type NewsArticle = {
   id: number;
@@ -16,75 +18,29 @@ type NewsArticle = {
   featured?: boolean;
 };
 
-const articles: NewsArticle[] = [
-  {
-    id: 1,
-    title: "برنامه جدید مسابقات فوتبال افغانستان اعلام شد",
-    category: "فوتبال افغانستان",
-    time: "2 ساعت پیش",
-    excerpt:
-      "برنامه جدید رقابت‌های فوتبال افغانستان اعلام شد و تیم‌ها برای هفته پیش‌رو آماده می‌شوند.",
-    featured: true,
-  },
-  {
-    id: 2,
-    title: "رقابت‌های لیگ برتر افغانستان با حضور تیم‌های جدید",
-    category: "لیگ برتر افغانستان",
-    time: "4 ساعت پیش",
-    excerpt:
-      "تیم‌های حاضر در رقابت‌های این فصل برای ادامه مسابقات آماده می‌شوند.",
-  },
-  {
-    id: 3,
-    title: "آمادگی تیم‌های هرات برای مسابقات پیش‌رو",
-    category: "هرات",
-    time: "5 ساعت پیش",
-    excerpt:
-      "تیم‌های هرات تمرینات خود را برای مسابقات آینده با جدیت دنبال می‌کنند.",
-  },
-  {
-    id: 4,
-    title: "برنامه مسابقات فوتسال افغانستان اعلام شد",
-    category: "فوتسال",
-    time: "7 ساعت پیش",
-    excerpt:
-      "برنامه جدید مسابقات فوتسال افغانستان منتشر شد.",
-  },
-  {
-    id: 5,
-    title: "تیم‌های کابل آماده هفته جدید رقابت‌ها",
-    category: "کابل",
-    time: "9 ساعت پیش",
-    excerpt:
-      "تیم‌های فوتبال کابل برای دیدارهای هفته جدید آماده می‌شوند.",
-  },
-  {
-    id: 6,
-    title: "رقابت‌های فوتسال هرات با دیدارهای جذاب ادامه پیدا می‌کند",
-    category: "فوتسال هرات",
-    time: "11 ساعت پیش",
-    excerpt:
-      "هفته جدید رقابت‌های فوتسال هرات با چند دیدار مهم دنبال خواهد شد.",
-  },
-  {
-    id: 7,
-    title: "تیم ملی افغانستان برای دیدارهای آینده آماده می‌شود",
-    category: "تیم ملی افغانستان",
-    time: "12 ساعت پیش",
-    excerpt:
-      "بازیکنان تیم ملی افغانستان تمرینات خود را برای حضور در رقابت‌ها و دیدارهای پیش‌رو دنبال می‌کنند.",
-  },
-];
+function getNewsArticles(t: (key: TranslationKey) => string): NewsArticle[] {
+  return [
+    { id: 1, title: t("newsArticle1Title"), category: t("newsArticle1Category"), time: t("newsTime2Hours"), excerpt: t("newsArticle1Excerpt"), featured: true },
+    { id: 2, title: t("newsArticle2Title"), category: t("newsArticle2Category"), time: t("newsTime4Hours"), excerpt: t("newsArticle2Excerpt") },
+    { id: 3, title: t("newsArticle3Title"), category: t("newsArticle3Category"), time: t("newsTime5Hours"), excerpt: t("newsArticle3Excerpt") },
+    { id: 4, title: t("newsArticle4Title"), category: t("newsArticle4Category"), time: t("newsTime7Hours"), excerpt: t("newsArticle4Excerpt") },
+    { id: 5, title: t("newsArticle5Title"), category: t("newsArticle5Category"), time: t("newsTime9Hours"), excerpt: t("newsArticle5Excerpt") },
+    { id: 6, title: t("newsArticle6Title"), category: t("newsArticle6Category"), time: t("newsTime11Hours"), excerpt: t("newsArticle6Excerpt") },
+    { id: 7, title: t("newsArticle7Title"), category: t("newsArticle7Category"), time: t("newsTime12Hours"), excerpt: t("newsArticle7Excerpt") },
+  ];
+}
 
-const trending = [
-  "لیگ برتر افغانستان",
-  "فوتبال هرات",
-  "فوتسال افغانستان",
-  "لیگ کابل",
-  "تیم ملی افغانستان",
-];
+type NewsPageProps = {
+  language: AppLanguage;
+};
 
-function NewsPage() {
+function NewsPage({ language }: NewsPageProps) {
+  const t = (key: TranslationKey) => translate(language, key);
+  const articles = useMemo(
+    () => getNewsArticles((key) => translate(language, key)),
+    [language],
+  );
+  const trending = [t("newsArticle2Category"), t("newsArticle3Category"), t("newsArticle4Category"), t("newsArticle5Category"), t("newsArticle7Category")];
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"for-you" | "latest">("for-you");
   const [selectedTopic, setSelectedTopic] = useState("");
@@ -116,7 +72,7 @@ function NewsPage() {
 
       return matchesSearch && matchesTopic;
     });
-  }, [searchQuery, selectedTopic]);
+  }, [articles, searchQuery, selectedTopic]);
 
   const featuredArticle =
     activeTab === "for-you"
@@ -144,10 +100,8 @@ function NewsPage() {
         <div className="news-page-header">
           <div>
             <span className="news-eyebrow">VARZESHONE NEWS</span>
-            <h1>اخبار فوتبال افغانستان</h1>
-            <p>
-              آخرین اخبار، گزارش‌ها و رویدادهای فوتبال و فوتسال افغانستان
-            </p>
+            <h1>{t("newsPageTitle")}</h1>
+            <p>{t("newsPageSubtitle")}</p>
           </div>
 
           <div className="news-search">
@@ -158,8 +112,8 @@ function NewsPage() {
                 setSearchQuery(event.target.value);
                 setShowAll(false);
               }}
-              placeholder="جستجوی اخبار..."
-              aria-label="جستجوی اخبار"
+              placeholder={t("newsSearchPlaceholder")}
+              aria-label={t("newsSearchPlaceholder")}
             />
           </div>
         </div>
@@ -173,7 +127,7 @@ function NewsPage() {
               setShowAll(false);
             }}
           >
-            Featured
+            {t("newsFeatured")}
           </button>
 
           <button
@@ -184,7 +138,7 @@ function NewsPage() {
               setShowAll(false);
             }}
           >
-            Latest
+            {t("newsLatest")}
           </button>
         </div>
 
@@ -194,7 +148,7 @@ function NewsPage() {
               <h2>{selectedTopic}</h2>
               <span>خبرهای مرتبط با موضوع انتخاب‌شده</span>
             </div>
-            <button onClick={resetFilters}>پاک‌کردن فیلتر</button>
+            <button onClick={resetFilters}>{t("clearFilters")}</button>
           </div>
         )}
 
@@ -228,15 +182,13 @@ function NewsPage() {
 
             <div className="news-section-title">
               <div>
-                <h2>
-                  {activeTab === "latest" ? "Latest News" : "Featured News"}
-                </h2>
-                <span>آخرین اخبار</span>
+                <h2>{activeTab === "latest" ? t("newsLatest") : t("newsFeatured")}</h2>
+                <span>{language === "en" ? "Latest news" : language === "ps-AF" ? "وروستي خبرونه" : "آخرین اخبار"}</span>
               </div>
 
               {listArticles.length > 4 && (
                 <button onClick={() => setShowAll((current) => !current)}>
-                  {showAll ? "نمایش کمتر" : "نمایش همه"}
+                  {showAll ? t("showLess") : t("showMore")}
                   <ArrowLeft size={15} />
                 </button>
               )}
@@ -245,15 +197,13 @@ function NewsPage() {
             {filteredArticles.length === 0 ? (
               <div className="news-sidebar-card" role="status">
                 <div className="news-card-content">
-                  <h3>خبری پیدا نشد</h3>
-                  <p>
-                    برای جستجو یا موضوع انتخاب‌شده خبری موجود نیست.
-                  </p>
+                  <h3>{t("newsNoResults")}</h3>
+                  <p>{t("newsNoResultsNote")}</p>
                   <button
                     className="news-section-title"
                     onClick={resetFilters}
                   >
-                    پاک‌کردن جستجو و فیلترها
+                    {t("clearNewsFilters")}
                   </button>
                 </div>
               </div>
@@ -288,7 +238,7 @@ function NewsPage() {
             <section className="news-sidebar-card">
               <div className="news-sidebar-title">
                 <Flame size={17} />
-                <h2>Trending</h2>
+                <h2>{t("trending")}</h2>
               </div>
 
               <div className="trending-list">
@@ -318,7 +268,7 @@ function NewsPage() {
             <section className="news-sidebar-card">
               <div className="news-sidebar-title">
                 <TrendingUp size={17} />
-                <h2>محبوب‌ترین اخبار</h2>
+                <h2>{t("popularNews")}</h2>
               </div>
 
               <div className="popular-news">

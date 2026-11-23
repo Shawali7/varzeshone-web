@@ -8,16 +8,21 @@
   Trophy,
 } from "lucide-react";
 import type { Match } from "../../types/sports";
+import { translate } from "../../i18n";
+import type { AppLanguage } from "../../i18n";
 
 type Props = {
   match: Match;
+  language?: AppLanguage;
   onBack: () => void;
 };
 
 export default function MatchDetails({
   match,
+  language = "fa-AF",
   onBack,
 }: Props) {
+  const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
   const finished = match.status === "FT";
   const live = match.status === "LIVE";
 
@@ -30,7 +35,7 @@ export default function MatchDetails({
           onClick={onBack}
         >
           <ArrowLeft size={18} />
-          <span>بازگشت به مسابقات</span>
+          <span>{t("backToMatches")}</span>
         </button>
 
         <div className="details-competition">
@@ -42,12 +47,12 @@ export default function MatchDetails({
       <section className="match-hero">
 
         <div className="match-meta">
-          <span>🇦🇫 افغانستان</span>
+          <span>🇦🇫 {t("afghanistan")}</span>
           <span>•</span>
           <span>
             {match.sport === "football"
-              ? "Football"
-              : "Futsal"}
+              ? t("football")
+              : t("futsal")}
           </span>
         </div>
 
@@ -59,7 +64,7 @@ export default function MatchDetails({
             </div>
 
             <h2>{match.home}</h2>
-            <span>Home</span>
+            <span>{t("matchHome")}</span>
           </div>
 
           <div className="details-score">
@@ -70,9 +75,9 @@ export default function MatchDetails({
               }`}
             >
               {live
-                ? "LIVE"
+                ? t("live").toUpperCase()
                 : finished
-                  ? "FULL TIME"
+                  ? t("fullTime").toUpperCase()
                   : match.time}
             </div>
 
@@ -100,7 +105,7 @@ export default function MatchDetails({
             </div>
 
             <h2>{match.away}</h2>
-            <span>Away</span>
+            <span>{t("away")}</span>
           </div>
 
         </div>
@@ -121,7 +126,7 @@ export default function MatchDetails({
 
           <div>
             <Flag size={16} />
-            <span>Afghanistan</span>
+            <span>{t("afghanistan")}</span>
           </div>
 
         </div>
@@ -130,23 +135,23 @@ export default function MatchDetails({
 
       <nav className="details-tabs">
         <button className="active">
-          Overview
+          {t("overview")}
         </button>
 
         <button>
-          Timeline
+          {t("timeline")}
         </button>
 
         <button>
-          Lineups
+          {t("lineup")}
         </button>
 
         <button>
-          Statistics
+          {t("statistics")}
         </button>
 
         <button>
-          Table
+          {t("table")}
         </button>
       </nav>
 
@@ -156,7 +161,7 @@ export default function MatchDetails({
 
           <div className="details-card-title">
             <Goal size={18} />
-            <span>Match events</span>
+            <span>{t("matchEvents")}</span>
           </div>
 
           <div className="timeline">
@@ -172,7 +177,7 @@ export default function MatchDetails({
 
               <div>
                 <strong>{match.home}</strong>
-                <span>Goal</span>
+                <span>{t("goal")}</span>
               </div>
             </div>
 
@@ -187,7 +192,7 @@ export default function MatchDetails({
 
               <div>
                 <strong>{match.away}</strong>
-                <span>Yellow card</span>
+                <span>{t("yellowCard")}</span>
               </div>
             </div>
 
@@ -202,7 +207,7 @@ export default function MatchDetails({
 
               <div>
                 <strong>{match.home}</strong>
-                <span>Goal</span>
+                <span>{t("goal")}</span>
               </div>
             </div>
 
@@ -214,31 +219,31 @@ export default function MatchDetails({
 
           <div className="details-card-title">
             <Trophy size={18} />
-            <span>Match statistics</span>
+            <span>{t("statistics")}</span>
           </div>
 
           <div className="stat-row">
-            <span>Possession</span>
+            <span>{t("possession")}</span>
             <strong>54% - 46%</strong>
           </div>
 
           <div className="stat-row">
-            <span>Shots</span>
+            <span>{t("shots")}</span>
             <strong>12 - 8</strong>
           </div>
 
           <div className="stat-row">
-            <span>Shots on target</span>
+            <span>{t("shotsOnTarget")}</span>
             <strong>6 - 3</strong>
           </div>
 
           <div className="stat-row">
-            <span>Corners</span>
+            <span>{t("corners")}</span>
             <strong>5 - 4</strong>
           </div>
 
           <div className="stat-row">
-            <span>Yellow cards</span>
+            <span>{t("yellowCards")}</span>
             <strong>1 - 2</strong>
           </div>
 
@@ -250,14 +255,14 @@ export default function MatchDetails({
 
         <div className="details-card-title">
           <Trophy size={18} />
-          <span>League table</span>
+          <span>{t("leagueTable")}</span>
         </div>
 
         <div className="mini-table">
 
           <div className="mini-table-row header">
             <span>#</span>
-            <span>Team</span>
+            <span>{t("team")}</span>
             <span>MP</span>
             <span>W</span>
             <span>D</span>

@@ -13,17 +13,25 @@ import {
 
 import type { League, Match } from "../types/sports";
 import { getLeagues, getMatches } from "../services/sportsService";
+import { getDemoLeagueSeasonData } from "../data/leagueData";
+import { CURRENT_DEMO_SEASON_ID } from "../data/seasonData";
+import { readPreference, writePreference } from "../utils/storage";
+import { translate } from "../i18n";
+import type { AppLanguage, TranslationKey } from "../i18n";
 
 type HomeCompetition = {
   id: string;
   title: string;
-  subtitle: string;
+  sport: Match["sport"];
+  totalMatches: number;
+  isDemo: boolean;
   matches: Match[];
 };
 
 type HomePageProps = {
+  language?: AppLanguage;
   onOpenNews: () => void;
-  onOpenLeague: () => void;
+  onOpenLeague: (leagueId: string) => void;
   onOpenMatch: (match: Match) => void;
   onOpenTeam: (teamName: string) => void;
   search: string;
@@ -32,13 +40,6 @@ type HomePageProps = {
 
 type HomeFilter = "all" | "live" | "upcoming" | "finished" | "tv" | "favorites";
 
-const news = [
-  "برنامه جدید مسابقات فوتبال افغانستان اعلام شد",
-  "رقابت‌های لیگ برتر افغانستان با حضور تیم‌های جدید",
-  "آمادگی تیم‌های هرات برای مسابقات پیش‌رو",
-  "برنامه مسابقات فوتسال افغانستان اعلام شد",
-];
-
 function buildCompetitions(
   matches: Match[],
 ): HomeCompetition[] {
@@ -46,22 +47,43 @@ function buildCompetitions(
 
   for (const match of matches) {
     const current =
-      groups.get(match.leagueName) ?? [];
+      groups.get(match.leagueId) ?? [];
 
     current.push(match);
-    groups.set(match.leagueName, current);
+    groups.set(match.leagueId, current);
   }
 
-  return Array.from(groups.entries()).map(
-    ([title, competitionMatches]) => ({
-      id:
-        competitionMatches[0]?.league ??
-        title,
-      title,
-      subtitle: `${competitionMatches.length} matches`,
+  return Array.from(groups.entries()).map(([id, competitionMatches]) => {
+    const firstMatch = competitionMatches[0];
+    if (!firstMatch) {
+      throw new Error(`Demo competition ${id} has no matches`);
+    }
+
+    return {
+      id,
+      title: displayLeagueName(firstMatch.leagueName),
+      sport: firstMatch.sport,
+      totalMatches: competitionMatches.length,
+      isDemo: competitionMatches.every((match) => match.isDemo),
       matches: competitionMatches,
-    }),
-  );
+    };
+  });
+}
+
+function displayLeagueName(name: string): string {
+  return name.replace(/\bdemo\b/gi, "").replace(/\s+/g, " ").trim();
+}
+
+function formatMatchesShown(
+  shown: number,
+  total: number,
+  locale: string,
+  t: (key: TranslationKey) => string,
+): string {
+  const numberFormat = new Intl.NumberFormat(locale);
+  return t("matchesShownOfTotal")
+    .replace("{shown}", numberFormat.format(shown))
+    .replace("{total}", numberFormat.format(total));
 }
 
 function getDateKey(date: Date): string {
@@ -94,12 +116,16 @@ function getCalendarDays(month: Date): Date[] {
   });
 }
 export default function HomePage({
+  language = "fa-AF",
   onOpenNews,
   onOpenLeague,
   onOpenMatch,
   search,
   setSearch,
 }: HomePageProps) {
+  const t = (key: TranslationKey) => translate(language, key);
+  const locale = language === "fa-AF" ? "fa-AF" : language === "ps-AF" ? "ps-AF" : "en-US";
+  const numberFormat = new Intl.NumberFormat(locale);
   const [matches, setMatches] = useState<Match[]>([]);
   const [leagues, setLeagues] = useState<League[]>([]);
   const [topLeaguesOpen, setTopLeaguesOpen] = useState(false);
@@ -124,9 +150,10 @@ export default function HomePage({
 
   const [loading, setLoading] =
     useState(true);
+  const [matchesError, setMatchesError] = useState(false);
 
   const [selectedLeague, setSelectedLeague] =
-    useState("همه مسابقات");
+    useState<string | null>(null);
 
   const [filter, setFilter] =
     useState<HomeFilter>("all");
@@ -135,6 +162,24 @@ export default function HomePage({
 
   const [sportFilter, setSportFilter] =
     useState<"all" | "football" | "futsal">("all");
+  const [allLeaguesOpen, setAllLeaguesOpen] = useState(false);
+  const [leagueSearch, setLeagueSearch] = useState("");
+
+  const filteredAllLeagues = useMemo(() => {
+    const query = leagueSearch.trim().toLowerCase();
+
+    return leagues.filter((league) => {
+      const matchesSport =
+        sportFilter === "all" || league.sport === sportFilter;
+
+      const matchesSearch =
+        !query ||
+        league.name.toLowerCase().includes(query) ||
+        league.country.toLowerCase().includes(query);
+
+      return matchesSport && matchesSearch;
+    });
+  }, [leagues, leagueSearch, sportFilter]);
 
   const [filterPanelOpen, setFilterPanelOpen] =
     useState(false);
@@ -162,6 +207,13 @@ export default function HomePage({
   });
 
   const todayKey = getDateKey(new Date());
+  const homepageStandings = getDemoLeagueSeasonData(
+    "afghanistan-premier-league",
+    CURRENT_DEMO_SEASON_ID,
+  ).standings.slice(0, 4);
+  const standingsLeague = leagues.find(
+    (league) => league.id === "afghanistan-premier-league",
+  );
   const calendarDays = getCalendarDays(calendarMonth);
 
   const changeSelectedDate = (amount: number) => {
@@ -177,7 +229,7 @@ export default function HomePage({
   const [favoriteMatchIds, setFavoriteMatchIds] =
     useState<string[]>(() => {
       try {
-        const saved = localStorage.getItem("varzeshone-favorite-matches");
+        const saved = readPreference("varzeshone-favorite-matches");
         const parsed: unknown = saved ? JSON.parse(saved) : [];
         return Array.isArray(parsed)
           ? parsed.filter((id): id is string => typeof id === "string")
@@ -188,7 +240,7 @@ export default function HomePage({
     });
 
   useEffect(() => {
-    localStorage.setItem(
+    writePreference(
       "varzeshone-favorite-matches",
       JSON.stringify(favoriteMatchIds),
     );
@@ -214,12 +266,17 @@ export default function HomePage({
         if (!cancelled) {
           setMatches(data);
         }
+      } catch {
+        if (!cancelled) setMatchesError(true);
       } finally {
         if (!cancelled) {
           setLoading(false);
         }
       }
     }
+
+
+    
 
     loadMatches();
 
@@ -238,9 +295,8 @@ export default function HomePage({
       return competitions
         .map((competition) => {
           const leagueMatch =
-            selectedLeague === "همه مسابقات" ||
-            competition.title ===
-              selectedLeague;
+            selectedLeague === null ||
+            competition.id === selectedLeague;
 
           if (!leagueMatch) {
             return null;
@@ -299,15 +355,17 @@ export default function HomePage({
                   matchesDate
                 );
 
-          if (sortByTime) {
-            filteredMatches.sort((a, b) => {
-              const timeA = a.time && /^\d{1,2}:\d{2}$/.test(a.time) ? a.time : "99:99";
-              const timeB = b.time && /^\d{1,2}:\d{2}$/.test(b.time) ? b.time : "99:99";
-              return timeA.localeCompare(timeB);
-            });
-          }
               },
             );
+
+          if (sortByTime) {
+            const timeValue = (time?: string) => {
+              if (!time || !/^\d{1,2}:\d{2}$/.test(time)) return Infinity;
+              const [hours, minutes] = time.split(":").map(Number);
+              return hours * 60 + minutes;
+            };
+            filteredMatches.sort((a, b) => timeValue(a.time) - timeValue(b.time));
+          }
 
           if (
             filteredMatches.length === 0
@@ -340,7 +398,7 @@ export default function HomePage({
     ]);
 
   const clearFilters = () => {
-    setSelectedLeague("همه مسابقات");
+    setSelectedLeague(null);
     setFilter("all");
     setSportFilter("all");
     setDraftFilter("all");
@@ -362,20 +420,32 @@ export default function HomePage({
     setCalendarOpen(false);
   };
 
+  const visibleMatchesCount = filteredCompetitions.reduce(
+    (count, competition) => count + competition.matches.length,
+    0,
+  );
+
+  const homeNews = [
+    { title: t("newsArticle1Title"), time: t("newsTime2Hours") },
+    { title: t("newsArticle2Title"), time: t("newsTime4Hours") },
+    { title: t("newsArticle3Title"), time: t("newsTime5Hours") },
+    { title: t("newsArticle4Title"), time: t("newsTime7Hours") },
+  ];
+
   return (
     <main className="main-layout">
 
       <aside className="left-sidebar">
         <section className={`card top-leagues ${topLeaguesOpen ? "is-open" : "is-collapsed"}`}>
           <div className="card-title">
-            <h2>Top leagues</h2>
+            <h2>{t("popularLeagues")}</h2>
             <button
               type="button"
               className="top-leagues-toggle"
               aria-expanded={topLeaguesOpen}
+              aria-label={topLeaguesOpen ? t("collapseAll") : t("expandAll")}
               onClick={() => setTopLeaguesOpen((open) => !open)}
             >
-              <span>Top leagues</span>
               <ChevronDown size={17} />
             </button>
           </div>
@@ -384,15 +454,12 @@ export default function HomePage({
 
             <button
               className={`league-item ${
-                selectedLeague ===
-                "همه مسابقات"
+                selectedLeague === null
                   ? "active"
                   : ""
               }`}
               onClick={() =>
-                setSelectedLeague(
-                  "همه مسابقات",
-                )
+                setSelectedLeague(null)
               }
             >
               <span className="league-icon af-icon">
@@ -400,18 +467,18 @@ export default function HomePage({
               </span>
 
               <span>
-                همه مسابقات
+                {t("allMatches")}
               </span>
             </button>
 
             {leagues.map((league) => (
               <button
                 className={`league-item ${
-                  selectedLeague === league.name ? "active" : ""
+                  selectedLeague === league.id ? "active" : ""
                 }`}
                 onClick={() => {
-                  setSelectedLeague(league.name);
-                  onOpenLeague();
+                  setSelectedLeague(league.id);
+                  onOpenLeague(league.id);
                 }}
                 key={league.id}
               >
@@ -419,27 +486,124 @@ export default function HomePage({
                   {league.sport === "football" ? "⚽" : "◉"}
                 </span>
 
-                <span>{league.name}</span>
+                <span>{displayLeagueName(league.name)}</span>
               </button>
             ))}
           </div>
         </section>
 
-        <button className="card all-leagues">
-          <span>
-            All leagues
-          </span>
+        <section className="all-leagues-section">
+          <button
+            type="button"
+            className="card all-leagues"
+            aria-expanded={allLeaguesOpen}
+            onClick={() => setAllLeaguesOpen((open) => !open)}
+          >
+            <span>{t("allLeagues")}</span>
+            <ChevronDown
+              size={15}
+              className={allLeaguesOpen ? "rotated" : ""}
+            />
+          </button>
 
-          <ChevronDown size={15} />
-        </button>
+          {allLeaguesOpen && (
+            <div className="all-leagues-panel">
+              <div className="all-leagues-search">
+                <Search size={16} />
+                <input
+                  type="search"
+                  value={leagueSearch}
+                  onChange={(event) => setLeagueSearch(event.target.value)}
+                  placeholder={t("searchPlaceholder")}
+                  aria-label={t("search")}
+                />
+              </div>
+
+              <div className="all-leagues-filters">
+                <button
+                  type="button"
+                  className={sportFilter === "all" ? "active" : ""}
+                  onClick={() => setSportFilter("all")}
+                >
+                  {t("all")}
+                </button>
+                <button
+                  type="button"
+                  className={sportFilter === "football" ? "active" : ""}
+                  onClick={() => setSportFilter("football")}
+                >
+                  {t("football")}
+                </button>
+                <button
+                  type="button"
+                  className={sportFilter === "futsal" ? "active" : ""}
+                  onClick={() => setSportFilter("futsal")}
+                >
+                  {t("futsal")}
+                </button>
+              </div>
+
+              <div className="all-leagues-results">
+                {filteredAllLeagues.length > 0 ? (
+                  filteredAllLeagues.map((league) => (
+                    <button
+                      type="button"
+                      className="all-leagues-item"
+                      key={league.id}
+                      onClick={() => {
+                        setSelectedLeague(league.id);
+                        setSportFilter(league.sport);
+                        setAllLeaguesOpen(false);
+                        setLeagueSearch("");
+                        onOpenLeague(league.id);
+                      }}
+                    >
+                      <span className="league-icon">
+                        {league.sport === "football" ? "⚽" : "◉"}
+                      </span>
+                      <span className="all-leagues-item-info">
+                        <span>{displayLeagueName(league.name)}</span>
+                        <small>{league.country}</small>
+                      </span>
+                      <ChevronRight size={15} />
+                    </button>
+                  ))
+                ) : (
+                  <p className="all-leagues-empty">
+                    {t("noLeaguesFound")}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
       </aside>
 
       <section className="matches-column">
+        <div className="home-feed-header">
+          <div className="home-feed-title">
+            <h1>{t("matches")}</h1>
+            <p>{t("homeFeedDescription")}</p>
+          </div>
+          <div className="home-feed-summary">
+            <span className="demo-status-badge">{t("demoData")}</span>
+            {!loading && !matchesError && (
+              <strong aria-live="polite">
+                {formatMatchesShown(
+                  visibleMatchesCount,
+                  matches.length,
+                  locale,
+                  t,
+                )}
+              </strong>
+            )}
+          </div>
+        </div>
 
         <div className="card date-bar">
           <button
             className="circle-button"
-            aria-label="Previous day"
+            aria-label={t("previousDay")}
             onClick={() => changeSelectedDate(-1)}
           >
             <ChevronLeft size={17} />
@@ -449,12 +613,13 @@ export default function HomePage({
             className="today-button"
             onClick={() => setCalendarOpen((open) => !open)}
             aria-expanded={calendarOpen}
-            aria-label="Choose match date"
+            aria-label={t("chooseMatchDate")}
           >
             <span>
               {selectedDate === todayKey
-                ? "Today"
-                : parseDateKey(selectedDate).toLocaleDateString("en-US", {
+                ? t("today")
+                : parseDateKey(selectedDate).toLocaleDateString(locale, {
+                    calendar: "gregory",
                     month: "short",
                     day: "numeric",
                     year: "numeric",
@@ -467,7 +632,7 @@ export default function HomePage({
 
           <button
             className="circle-button"
-            aria-label="Next day"
+            aria-label={t("nextDay")}
             onClick={() => changeSelectedDate(1)}
           >
             <ChevronRight size={17} />
@@ -478,7 +643,7 @@ export default function HomePage({
               <div className="calendar-header">
                 <button
                   className="calendar-nav"
-                  aria-label="Previous month"
+                  aria-label={t("previousMonth")}
                   onClick={() =>
                     setCalendarMonth(
                       (month) =>
@@ -494,7 +659,8 @@ export default function HomePage({
                 </button>
 
                 <strong>
-                  {calendarMonth.toLocaleDateString("en-US", {
+                  {calendarMonth.toLocaleDateString(locale, {
+                    calendar: "gregory",
                     month: "long",
                     year: "numeric",
                   })}
@@ -502,7 +668,7 @@ export default function HomePage({
 
                 <button
                   className="calendar-nav"
-                  aria-label="Next month"
+                  aria-label={t("nextMonth")}
                   onClick={() =>
                     setCalendarMonth(
                       (month) =>
@@ -519,7 +685,7 @@ export default function HomePage({
               </div>
 
               <div className="calendar-weekdays">
-                {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                {[t("mon"), t("tue"), t("wed"), t("thu"), t("fri"), t("sat"), t("sun")].map(
                   (day) => (
                     <span key={day}>{day}</span>
                   ),
@@ -545,7 +711,8 @@ export default function HomePage({
                       ]
                         .filter(Boolean)
                         .join(" ")}
-                      aria-label={day.toLocaleDateString("en-US", {
+                      aria-label={day.toLocaleDateString(locale, {
+                        calendar: "gregory",
                         month: "long",
                         day: "numeric",
                         year: "numeric",
@@ -563,7 +730,7 @@ export default function HomePage({
                         setCalendarOpen(false);
                       }}
                     >
-                      {day.getDate()}
+                      {numberFormat.format(day.getDate())}
                     </button>
                   );
                 })}
@@ -584,7 +751,7 @@ export default function HomePage({
                     setCalendarOpen(false);
                   }}
                 >
-                  Go to today
+                  {t("goToToday")}
                 </button>
               </div>
             </div>
@@ -602,7 +769,7 @@ export default function HomePage({
               }
             >
               <span className="live-dot" />
-              Live
+              {t("live")}
             </button>
 
             <button
@@ -614,7 +781,7 @@ export default function HomePage({
               }
             >
               <Tv size={14} />
-              On TV
+              {t("onTelevision")}
             </button>
 
             <button
@@ -624,7 +791,7 @@ export default function HomePage({
               onClick={() => setSortByTime((current) => !current)}
             >
               <Clock3 size={14} />
-              By time
+              {t("byTime")}
             </button>
           </div>
 
@@ -635,15 +802,15 @@ export default function HomePage({
                 type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search teams or leagues"
-                aria-label="Search teams or leagues"
+                placeholder={t("searchPlaceholder")}
+                aria-label={t("search")}
               />
               {search && (
                 <button
                   type="button"
                   className="filter-search-clear"
                   onClick={() => setSearch("")}
-                  aria-label="Clear search"
+                  aria-label={t("clearSearch")}
                 >
                   ×
                 </button>
@@ -653,9 +820,9 @@ export default function HomePage({
             <button
               type="button"
               className={`filter-advanced-icon ${filterPanelOpen ? "active" : ""}`}
-              aria-label="Advanced filters"
+              aria-label={t("advancedFilters")}
               aria-expanded={filterPanelOpen}
-              title="Advanced filters"
+              title={t("advancedFilters")}
               onClick={() => {
                 if (!filterPanelOpen) {
                   setDraftFilter(
@@ -677,12 +844,12 @@ export default function HomePage({
         {filterPanelOpen && (
           <div className="card advanced-filter-panel">
             <div className="advanced-filter-section">
-              <h3>Sport</h3>
+              <h3>{t("sportFilter")}</h3>
               <div className="advanced-filter-options">
                 {([
-                  ["all", "All sports"],
-                  ["football", "Football"],
-                  ["futsal", "Futsal"],
+                  ["all", t("allSports")],
+                  ["football", t("football")],
+                  ["futsal", t("futsal")],
                 ] as const).map(([value, label]) => (
                   <button
                     key={value}
@@ -698,13 +865,13 @@ export default function HomePage({
             </div>
 
             <div className="advanced-filter-section">
-              <h3>Match status</h3>
+              <h3>{t("matchStatus")}</h3>
               <div className="advanced-filter-options">
                 {([
-                  ["all", "All"],
-                  ["live", "Live"],
-                  ["upcoming", "Upcoming"],
-                  ["finished", "Finished"],
+                  ["all", t("all")],
+                  ["live", t("live")],
+                  ["upcoming", t("scheduled")],
+                  ["finished", t("finished")],
                 ] as const).map(([value, label]) => (
                   <button
                     key={value}
@@ -727,7 +894,7 @@ export default function HomePage({
                   onChange={(event) => setDraftOnlyTV(event.target.checked)}
                 />
                 <Tv size={15} />
-                <span>On TV only</span>
+                <span>{t("onTelevision")}</span>
               </label>
 
               <label>
@@ -737,7 +904,7 @@ export default function HomePage({
                   onChange={(event) => setDraftOnlyFavorites(event.target.checked)}
                 />
                 <Star size={15} />
-                <span>Favorites only</span>
+                <span>{t("favorites")}</span>
               </label>
             </div>
 
@@ -756,7 +923,7 @@ export default function HomePage({
                   setOnlyFavorites(false);
                 }}
               >
-                Reset
+                {t("reset")}
               </button>
 
               <button
@@ -770,36 +937,36 @@ export default function HomePage({
                   setFilterPanelOpen(false);
                 }}
               >
-                Apply filters
+                {t("applyFilters")}
               </button>
             </div>
           </div>
         )}
 
         {loading ? (
-          <div className="card empty-state">
+          <div className="card empty-state" role="status">
             <div className="loading-spinner" />
 
-            <h3>
-              Loading matches
-            </h3>
+            <h3>{t("loadingMatches")}</h3>
 
             <p>
-              Please wait...
+              {t("pleaseWait")}
             </p>
+          </div>
+        ) : matchesError ? (
+          <div className="card empty-state" role="alert">
+            <h3>{t("couldNotLoadMatches")}</h3>
+            <p>{t("reloadToTryAgain")}</p>
           </div>
         ) : filteredCompetitions.length ===
           0 ? (
-          <div className="card empty-state">
+          <div className="card empty-state" role="status">
             <Search size={30} />
 
-            <h3>
-              No matches found
-            </h3>
+            <h3>{t("noMatchesFound")}</h3>
 
             <p>
-              Try changing your search
-              or filters.
+              {t("tryChangingFilters")}
             </p>
 
             <button
@@ -808,7 +975,7 @@ export default function HomePage({
                 clearFilters
               }
             >
-              Clear filters
+              {t("clearFilters")}
             </button>
           </div>
         ) : (
@@ -816,12 +983,10 @@ export default function HomePage({
             (competition) => (
               <CompetitionCard
                 key={competition.id}
-                title={
-                  competition.title
-                }
-                subtitle={
-                  competition.subtitle
-                }
+                title={competition.title}
+                sport={competition.sport}
+                totalMatches={competition.totalMatches}
+                isDemo={competition.isDemo}
                 matches={
                   competition.matches
                 }
@@ -830,6 +995,7 @@ export default function HomePage({
                 }
                 favoriteMatchIds={favoriteMatchIds}
                 onToggleFavorite={toggleFavorite}
+                language={language}
               />
             ),
           )
@@ -842,14 +1008,15 @@ export default function HomePage({
         <section className="card news-card">
 
           <div className="section-header">
-            <h2>
-              News
-            </h2>
+            <div className="section-title-group">
+              <h2>{t("news")}</h2>
+              <span className="demo-status-badge">{t("demoData")}</span>
+            </div>
 
             <button
               onClick={onOpenNews}
             >
-              View all
+              {t("viewAll")}
             </button>
           </div>
 
@@ -862,35 +1029,32 @@ export default function HomePage({
             </div>
 
             <h3>
-              {news[0]}
+              {homeNews[0].title}
             </h3>
 
             <span>
-              VarzeshOne · 2 hr. ago
+              VarzeshOne · {homeNews[0].time}
             </span>
 
           </article>
 
-          {news.slice(1).map(
-            (item, index) => (
+          {homeNews.slice(1).map(
+            (item) => (
               <article
                 className="news-item"
-                key={item}
+                key={item.title}
               >
                 <div className="news-image">
-                  NEWS
+                  {t("news")}
                 </div>
 
                 <div>
                   <h3>
-                    {item}
+                    {item.title}
                   </h3>
 
                   <span>
-                    VarzeshOne ·{" "}
-                    {5 +
-                      index * 2}{" "}
-                    hr. ago
+                    VarzeshOne · {item.time}
                   </span>
                 </div>
               </article>
@@ -902,68 +1066,50 @@ export default function HomePage({
         <section className="card standings-card">
 
           <div className="section-header">
-            <h2>
-              Standings
-            </h2>
+            <div className="section-title-group">
+              <h2>{t("standings")}</h2>
+              <span className="demo-status-badge">{t("demoData")}</span>
+            </div>
 
-            <button>
-              Full table
+            <button onClick={() => onOpenLeague("afghanistan-premier-league")}>
+              {t("leagueFullTable")}
             </button>
           </div>
+
+          {standingsLeague && (
+            <div className="standings-competition-name">
+              {displayLeagueName(standingsLeague.name)}
+            </div>
+          )}
 
           <div className="standings">
 
             <div className="standing-head">
               <span>#</span>
-              <span>Team</span>
-              <span>P</span>
-              <span>Pts</span>
+              <span>{t("team")}</span>
+              <span>{t("leaguePlayed")}</span>
+              <span>{t("leaguePoints")}</span>
             </div>
 
-            {[
-              [
-                "1",
-                "Herat FC",
-                "5",
-                "13",
-              ],
-              [
-                "2",
-                "Kabul FC",
-                "5",
-                "10",
-              ],
-              [
-                "3",
-                "Kandahar FC",
-                "5",
-                "7",
-              ],
-              [
-                "4",
-                "Balkh FC",
-                "5",
-                "4",
-              ],
-            ].map((row) => (
+            {homepageStandings.map((row) => (
               <div
                 className="standing-row"
-                key={row[0]}
+                key={row.teamId}
               >
                 <span>
-                  {row[0]}
+                  {numberFormat.format(row.position)}
                 </span>
 
                 <strong>
-                  {row[1]}
+                  {row.team}
                 </strong>
 
                 <span>
-                  {row[2]}
+                  {numberFormat.format(row.played)}
                 </span>
 
                 <strong>
-                  {row[3]}
+                  {numberFormat.format(row.points)}
                 </strong>
               </div>
             ))}
@@ -978,27 +1124,36 @@ export default function HomePage({
 
 function CompetitionCard({
   title,
-  subtitle,
+  sport,
+  totalMatches,
+  isDemo,
   matches,
   onOpenMatch,
   favoriteMatchIds,
   onToggleFavorite,
+  language,
 }: {
   title: string;
-  subtitle: string;
+  sport: Match["sport"];
+  totalMatches: number;
+  isDemo: boolean;
   matches: Match[];
   onOpenMatch: (match: Match) => void;
   favoriteMatchIds: string[];
   onToggleFavorite: (matchId: string) => void;
+  language: AppLanguage;
 }) {
   const [open, setOpen] =
     useState(true);
+  const t = (key: TranslationKey) => translate(language, key);
+  const locale = language === "fa-AF" ? "fa-AF" : language === "ps-AF" ? "ps-AF" : "en-US";
 
   return (
     <section className="competition-card card">
 
       <button
         className="competition-header"
+        aria-expanded={open}
         onClick={() =>
           setOpen(
             (value) =>
@@ -1009,7 +1164,7 @@ function CompetitionCard({
         <div className="competition-title">
 
           <span className="competition-icon">
-            ⚽
+            {sport === "football" ? "⚽" : "◉"}
           </span>
 
           <div>
@@ -1018,10 +1173,13 @@ function CompetitionCard({
             </strong>
 
             <span>
-              {subtitle}
+              {formatMatchesShown(matches.length, totalMatches, locale, t)}
             </span>
           </div>
 
+          {isDemo && (
+            <span className="demo-status-badge">{t("demoData")}</span>
+          )}
         </div>
 
         <ChevronDown
@@ -1044,6 +1202,7 @@ function CompetitionCard({
                 onOpenMatch={onOpenMatch}
                 isFavorite={favoriteMatchIds.includes(match.id)}
                 onToggleFavorite={onToggleFavorite}
+                language={language}
               />
             ),
           )}
@@ -1059,17 +1218,31 @@ function MatchRow({
   onOpenMatch,
   isFavorite,
   onToggleFavorite,
+  language = "fa-AF",
 }: {
   match: Match;
   onOpenMatch: (match: Match) => void;
   isFavorite: boolean;
   onToggleFavorite: (matchId: string) => void;
+  language?: AppLanguage;
 }) {
+  const t = (key: TranslationKey) => translate(language, key);
   const live =
     match.status === "LIVE";
 
   const finished =
     match.status === "FT";
+  const upcoming = match.status === "UPCOMING";
+  const locale = language === "fa-AF" ? "fa-AF" : language === "ps-AF" ? "ps-AF" : "en-US";
+  const numberFormat = new Intl.NumberFormat(locale, { useGrouping: false });
+  const formatScore = (score: number | undefined) =>
+    score === undefined ? "" : numberFormat.format(score);
+  const formatTime = (time: string | undefined) => {
+    if (!time) return "";
+    const [hours, minutes] = time.split(":").map(Number);
+    const zero = numberFormat.format(0);
+    return `${numberFormat.format(hours).padStart(2, zero)}:${numberFormat.format(minutes).padStart(2, zero)}`;
+  };
 
   return (
     <article
@@ -1078,6 +1251,7 @@ function MatchRow({
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onOpenMatch(match);
@@ -1089,7 +1263,9 @@ function MatchRow({
         className={`match-status ${
           live
             ? "is-live"
-            : ""
+            : upcoming
+              ? "is-upcoming"
+              : ""
         }`}
       >
         {live && (
@@ -1097,7 +1273,13 @@ function MatchRow({
         )}
 
         <span>
-          {finished ? "FT" : live ? "LIVE" : ""}
+          {finished
+            ? t("ft")
+            : live
+              ? t("live")
+              : upcoming
+                ? t("scheduled")
+                : ""}
         </span>
       </div>
 
@@ -1117,7 +1299,7 @@ function MatchRow({
         live ? (
           <>
             <strong>
-              {match.homeScore}
+              {formatScore(match.homeScore)}
             </strong>
 
             <span>
@@ -1125,12 +1307,12 @@ function MatchRow({
             </span>
 
             <strong>
-              {match.awayScore}
+              {formatScore(match.awayScore)}
             </strong>
           </>
         ) : (
           <span className="match-time">
-            {match.time}
+            {formatTime(match.time)}
           </span>
         )}
 
@@ -1159,7 +1341,7 @@ function MatchRow({
         <button
           type="button"
           className={`favorite-button ${isFavorite ? "is-favorite" : ""}`}
-          aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+          aria-label={isFavorite ? t("removeFavorite") : t("addFavorite")}
           aria-pressed={isFavorite}
           onClick={(event) => {
             event.stopPropagation();
@@ -1174,9 +1356,6 @@ function MatchRow({
     </article>
   );
 }
-
-
-
 
 
 

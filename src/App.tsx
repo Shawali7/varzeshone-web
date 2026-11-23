@@ -1,5 +1,8 @@
+﻿import type { AppLanguage } from "./i18n/types"
+import { translate } from "./i18n";
 
 import { useEffect, useRef, useState } from "react";
+import { readPreference, writePreference } from "./utils/storage";
 import {
   ChevronDown,
   Shield,
@@ -33,6 +36,10 @@ import LeaguePage from "./pages/LeaguePage";
 import MatchPage from "./pages/MatchPage";
 import TeamPage from "./pages/TeamPage";
 import PlayerPage from "./pages/PlayerPage";
+import MatchesPage from "./pages/MatchesPage";
+import NotFoundPage from "./pages/NotFoundPage";
+import AuthPage from "./pages/AuthPage";
+import LegalNoticePage from "./pages/LegalNoticePage";
 
 import { getLeagues, getMatches } from "./services/sportsService";
 import { getPlayers } from "./services/playerService";
@@ -46,9 +53,12 @@ import type {
   PlayerTransfer,
   Team,
 } from "./types";
+import { entityPath, leaguePath, resolveRoute } from "./routing/routes";
+import type { LeagueSection } from "./routing/routes";
+import { useBrowserRouter } from "./routing/useBrowserRouter";
 
 type ThemeMode = "light" | "dark" | "system";
-type AppLanguage = "fa-AF" | "ps-AF" | "en";
+
 
 type SearchTab =
   | "all"
@@ -67,6 +77,12 @@ type SearchResult = {
   player?: Player;
 };
 
+type RouteDataStatus = {
+  leagues: "loading" | "ready" | "error";
+  matches: "loading" | "ready" | "error";
+  teams: "loading" | "ready" | "error";
+  players: "loading" | "ready" | "error";
+};
 
 
 function App() {
@@ -74,18 +90,35 @@ function App() {
   // Application state
   // ----------------------------------------
 
-  const [activePage, setActivePage] = useState<
-    "home" | "news" | "about" | "league" | "match" | "team" | "player"
-  >("home");
+  const { location, navigate, go } = useBrowserRouter();
+  const route = resolveRoute(location.pathname);
+  const activePage = route.type;
+  const isStandaloneExperience =
+    route.type === "sign-in" ||
+    route.type === "register" ||
+    route.type === "forgot-password" ||
+    route.type === "terms" ||
+    route.type === "privacy";
 
-  const [selectedMatch, setSelectedMatch] =
-    useState<Match | null>(null);
+  const currentUrl = `${location.pathname}${location.search}${location.hash}`;
+  const navigateTo = (path: string) => navigate(path, {
+    preserveSearch: true,
+    preserveHash: true,
+  });
+  const navigateBack = () => {
+    const historyState = location.state as { __varzeshoneIndex?: number } | null;
+    if (historyState?.__varzeshoneIndex && historyState.__varzeshoneIndex > 0) {
+      go(-1);
+      return;
+    }
 
-  const [selectedTeam, setSelectedTeam] =
-    useState<string | null>(null);
-
-  const [selectedPlayer, setSelectedPlayer] =
-    useState<Player | null>(null);
+    navigate("/", {
+      replace: true,
+      preserveSearch: true,
+      preserveHash: true,
+      state: null,
+    });
+  };
 
   const [playerData, setPlayerData] =
     useState<Player[]>([]);
@@ -102,8 +135,12 @@ function App() {
   const [leagueData, setLeagueData] =
     useState<League[]>([]);
 
-  const [selectedLeagueId, setSelectedLeagueId] =
-    useState("afghanistan-premier-league");
+  const [routeDataStatus, setRouteDataStatus] = useState<RouteDataStatus>({
+    leagues: "loading",
+    matches: "loading",
+    teams: "loading",
+    players: "loading",
+  });
 
   // ----------------------------------------
   // Language state
@@ -111,7 +148,7 @@ function App() {
 
   const [language, setLanguage] =
     useState<AppLanguage>(() => {
-      const saved = localStorage.getItem("varzeshone-language");
+      const saved = readPreference("varzeshone-language");
 
       if (
         saved === "fa-AF" ||
@@ -130,7 +167,7 @@ function App() {
 
   const [theme, setTheme] =
     useState<ThemeMode>(() => {
-      const saved = localStorage.getItem("varzeshone-theme");
+      const saved = readPreference("varzeshone-theme");
 
       if (
         saved === "light" ||
@@ -163,6 +200,38 @@ function App() {
     useState<SearchTab>("all");
 
   const searchRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const panel = menuRef.current;
+    panel?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !panel) return;
+      const controls = Array.from(panel.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input, select, a[href], [tabindex="0"]',
+      )).filter((element) => element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.removeEventListener("keydown", trapFocus);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [menuOpen]);
 
   // ----------------------------------------
   // Language effect: RTL / LTR
@@ -174,7 +243,7 @@ function App() {
     document.documentElement.dir =
       language === "en" ? "ltr" : "rtl";
 
-    localStorage.setItem(
+    writePreference(
       "varzeshone-language",
       language
     );
@@ -185,7 +254,7 @@ function App() {
   // ----------------------------------------
 
   useEffect(() => {
-    localStorage.setItem(
+    writePreference(
       "varzeshone-theme",
       theme
     );
@@ -237,10 +306,14 @@ function App() {
       .then((data) => {
         if (!cancelled) {
           setLeagueData(data);
+          setRouteDataStatus((status) => ({ ...status, leagues: "ready" }));
         }
       })
       .catch((error) => {
         console.error("Failed to load leagues:", error);
+        if (!cancelled) {
+          setRouteDataStatus((status) => ({ ...status, leagues: "error" }));
+        }
       });
 
     return () => {
@@ -259,10 +332,14 @@ function App() {
       .then((data) => {
         if (!cancelled) {
           setTeamMatches(data);
+          setRouteDataStatus((status) => ({ ...status, matches: "ready" }));
         }
       })
       .catch((error) => {
         console.error("Failed to load team matches:", error);
+        if (!cancelled) {
+          setRouteDataStatus((status) => ({ ...status, matches: "error" }));
+        }
       });
 
     return () => {
@@ -281,10 +358,14 @@ function App() {
       .then((data) => {
         if (!cancelled) {
           setTeamData(data);
+          setRouteDataStatus((status) => ({ ...status, teams: "ready" }));
         }
       })
       .catch((error) => {
         console.error("Failed to load teams:", error);
+        if (!cancelled) {
+          setRouteDataStatus((status) => ({ ...status, teams: "error" }));
+        }
       });
 
     return () => {
@@ -303,10 +384,14 @@ function App() {
       .then((data) => {
         if (!cancelled) {
           setPlayerData(data);
+          setRouteDataStatus((status) => ({ ...status, players: "ready" }));
         }
       })
       .catch((error) => {
         console.error("Failed to load players:", error);
+        if (!cancelled) {
+          setRouteDataStatus((status) => ({ ...status, players: "error" }));
+        }
       });
 
     return () => {
@@ -346,14 +431,14 @@ function App() {
     const teams: SearchResult[] = teamData.map((team) => ({
       id: `team-${team.id}`,
       title: team.name,
-      subtitle: `${team.country} · ${team.sport} · DEMO DATA`,
+      subtitle: `${team.country} · ${translate(language, team.sport === "football" ? "football" : "futsal")} · ${translate(language, "demoData")}`,
       type: "team",
     }));
 
     const leagues: SearchResult[] = leagueData.map((league) => ({
       id: `league-${league.id}`,
       title: league.name,
-      subtitle: `${league.country} · ${league.sport}`,
+      subtitle: `${league.country} · ${translate(language, league.sport === "football" ? "football" : "futsal")}`,
       type: "league",
       leagueId: league.id,
     }));
@@ -363,9 +448,9 @@ function App() {
       title: `${match.home} vs ${match.away}`,
       subtitle: `${match.leagueName} · ${
         match.status === "LIVE"
-          ? "Live"
+          ? translate(language, "live")
           : match.status === "FT"
-            ? "Finished"
+            ? translate(language, "finished")
             : match.time || match.date
       }`,
       type: "match",
@@ -375,7 +460,7 @@ function App() {
     const playerResults: SearchResult[] = playerData.map((player) => ({
       id: `player-${player.id}`,
       title: player.name,
-      subtitle: `${player.position || "Player"} · DEMO DATA`,
+      subtitle: `${player.position || translate(language, "player")} · ${translate(language, "demoData")}`,
       type: "player",
       player,
     }));
@@ -411,80 +496,69 @@ function App() {
   // Navigation functions
   // ----------------------------------------
 
-  const openLeague = () => {
-    setActivePage("league");
-    setSelectedMatch(null);
+  const openLeague = (leagueId: string) => {
+    navigateTo(leaguePath(leagueId));
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const openTeam = (teamName: string) => {
-    setSelectedTeam(teamName);
-    setSelectedMatch(null);
-    setActivePage("team");
+    const team = teamData.find((item) => item.name === teamName);
+    navigateTo(entityPath("team", team?.id ?? teamName));
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const closeTeam = () => {
-    setSelectedTeam(null);
-    setActivePage("home");
+    navigateBack();
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const openMatch = (match: Match) => {
-    setSelectedMatch(match);
-    setActivePage("match");
+    navigateTo(entityPath("match", match.id));
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const closeMatch = () => {
-    setSelectedMatch(null);
-    setActivePage("home");
+    navigateBack();
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const openPlayer = (player: Player) => {
-    setSelectedPlayer(player);
-    setSelectedMatch(null);
-    setSelectedTeam(null);
-    setActivePage("player");
+    navigateTo(entityPath("player", player.id));
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const closePlayer = () => {
-    setSelectedPlayer(null);
-    setActivePage("home");
+    navigateBack();
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const openNews = () => {
-    setActivePage("news");
+    navigateTo("/news");
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const openAbout = () => {
-    setActivePage("about");
+    navigateTo("/about");
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const openHome = () => {
-    setActivePage("home");
+    navigateTo("/");
     setMenuOpen(false);
     setSearchOpen(false);
   };
 
   const handleLeagueSelect = (leagueId: string) => {
-    setSelectedLeagueId(leagueId);
-    setSelectedMatch(null);
-    setActivePage("league");
+    navigateTo(leaguePath(leagueId));
     setMenuOpen(false);
     setSearchOpen(false);
   };
@@ -545,19 +619,149 @@ function App() {
     };
   }, []);
 
+  const renderRoute = () => {
+    switch (route.type) {
+      case "home":
+        return (
+          <HomePage
+            language={language}
+            onOpenNews={openNews}
+            onOpenLeague={openLeague}
+            onOpenMatch={openMatch}
+            onOpenTeam={openTeam}
+            search={search}
+            setSearch={setSearch}
+          />
+        );
+      case "matches":
+        return <MatchesPage language={language} onOpenMatch={openMatch} />;
+      case "news":
+        return <NewsPage language={language} />;
+      case "about":
+        return <AboutPage language={language} />;
+      case "sign-in":
+      case "register":
+      case "forgot-password":
+        return (
+          <AuthPage
+            key={route.type}
+            mode={route.type}
+            language={language}
+            onNavigate={navigateTo}
+          />
+        );
+      case "terms":
+      case "privacy":
+        return (
+          <LegalNoticePage
+            kind={route.type}
+            language={language}
+            onNavigate={navigateTo}
+          />
+        );
+      case "league": {
+        if (routeDataStatus.leagues === "loading") return <RouteLoading language={language} />;
+        if (routeDataStatus.leagues === "error") return <RouteLoadError language={language} />;
+
+        const league = leagueData.find((item) => item.id === route.leagueId);
+        if (!league) {
+          return <NotFoundPage language={language} path={currentUrl} onHome={openHome} />;
+        }
+
+        const changeTab = (section: LeagueSection) => {
+          const path = leaguePath(route.leagueId, section);
+          navigate(`${path}${location.search}${location.hash}`, {
+            state: location.state,
+          });
+        };
+        const changeSeason = (season: string) => {
+          const searchParams = new URLSearchParams(location.search);
+          searchParams.set("season", season);
+          navigate(`${location.pathname}?${searchParams.toString()}${location.hash}`, {
+            state: location.state,
+          });
+        };
+
+        return (
+          <LeaguePage
+            key={route.leagueId}
+            league={league}
+            language={language}
+            tab={route.section}
+            season={new URLSearchParams(location.search).get("season") ?? undefined}
+            onTabChange={changeTab}
+            onSeasonChange={changeSeason}
+          />
+        );
+      }
+      case "match": {
+        if (routeDataStatus.matches === "loading") return <RouteLoading language={language} />;
+        if (routeDataStatus.matches === "error") return <RouteLoadError language={language} />;
+        const match = teamMatches.find((item) => item.id === route.matchId);
+        return match
+          ? <MatchPage key={match.id} match={match} language={language} onBack={closeMatch} />
+          : <NotFoundPage language={language} path={currentUrl} onHome={openHome} />;
+      }
+      case "team": {
+        if (routeDataStatus.teams === "loading") return <RouteLoading language={language} />;
+        if (routeDataStatus.teams === "error") return <RouteLoadError language={language} />;
+        const team = teamData.find((item) => item.id === route.teamId) ??
+          teamData.find((item) => item.name.toLowerCase() === route.teamId.toLowerCase());
+        if (!team) return <NotFoundPage language={language} path={currentUrl} onHome={openHome} />;
+
+        return (
+          <TeamPage
+            key={team.id}
+            team={team}
+            matches={teamMatches}
+            players={playerData.filter((player) => player.teamId === team.id)}
+            language={language}
+            onOpenPlayer={openPlayer}
+            onBack={closeTeam}
+          />
+        );
+      }
+      case "player": {
+        if (routeDataStatus.players === "loading") return <RouteLoading language={language} />;
+        if (routeDataStatus.players === "error") return <RouteLoadError language={language} />;
+        const player = playerData.find((item) => item.id === route.playerId);
+        if (!player) return <NotFoundPage language={language} path={currentUrl} onHome={openHome} />;
+
+        return (
+          <PlayerPage
+            key={player.id}
+            player={player}
+            teamName={teamData.find((team) => team.id === player.teamId)?.name}
+            teams={teamData}
+            transfers={transferData.filter((transfer) => transfer.playerId === player.id)}
+            language={language}
+            onBack={closePlayer}
+          />
+        );
+      }
+      case "not-found":
+        return <NotFoundPage language={language} path={currentUrl} onHome={openHome} />;
+      default:
+        return <NotFoundPage language={language} path={currentUrl} onHome={openHome} />;
+    }
+  };
+
+  const routeContent = renderRoute();
+
   // ----------------------------------------
   // Render
   // ----------------------------------------
 
   return (
     <div className="app">
+      {!isStandaloneExperience && (
       <header className="header">
         <div className="header-inner">
 
           <button
             className="mobile-menu-button icon-button"
             onClick={() => setMenuOpen(true)}
-            aria-label="Open menu"
+            aria-label={translate(language, "mainNavigation")}
           >
             <Menu size={19} />
           </button>
@@ -565,7 +769,7 @@ function App() {
           <button
             className="brand"
             onClick={openHome}
-            aria-label="Go to home"
+            aria-label={translate(language, "legalNoticeHome")}
           >
             <span className="brand-mark">V</span>
 
@@ -580,7 +784,7 @@ function App() {
             className="search-container"
             ref={searchRef}
           >
-            <button
+            <div
               className={`search-box ${searchOpen ? "open" : ""}`}
               onClick={() => {
                 setSearchOpen(true);
@@ -602,11 +806,16 @@ function App() {
                   setSearchOpen(true);
                 }}
                 onClick={(event) => event.stopPropagation()}
-                placeholder="Search"
+                placeholder={translate(language, "search")}
+                aria-label={translate(language, "searchTeamsCompetitions")}
+                aria-expanded={searchOpen}
+                onFocus={() => setSearchOpen(true)}
               />
 
               {search ? (
-                <span
+                <button
+                  type="button"
+                  aria-label={translate(language, "clearSearch")}
                   className="search-clear"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -614,21 +823,21 @@ function App() {
                   }}
                 >
                   <X size={14} />
-                </span>
+                </button>
               ) : (
                 <kbd>Ctrl K</kbd>
               )}
-            </button>
+            </div>
 
             {searchOpen && (
               <div className="search-dropdown">
                 <div className="search-tabs">
                   {[
-                    ["all", "All"],
-                    ["teams", "Teams"],
-                    ["leagues", "Leagues"],
-                    ["players", "Players"],
-                    ["matches", "Matches"],
+                    ["all", translate(language, "all")],
+                    ["teams", translate(language, "teamsBreadcrumb")],
+                    ["leagues", translate(language, "leagueDetails")],
+                    ["players", translate(language, "player")],
+                    ["matches", translate(language, "matches")],
                   ].map(([value, label]) => (
                     <button
                       key={value}
@@ -647,12 +856,12 @@ function App() {
                 <div className="recent-header">
                   <strong>
                     {normalizedSearch
-                      ? "Search results"
-                      : "Explore"}
+                      ? translate(language, "searchResults")
+                      : translate(language, "explore")}
                   </strong>
 
                   <span>
-                    {searchResults.length} results
+                    {searchResults.length} {translate(language, "resultsCount")}
                   </span>
                 </div>
 
@@ -660,8 +869,8 @@ function App() {
                   {searchResults.length === 0 ? (
                     <div className="search-empty">
                       {searchTab === "players"
-                        ? "Player data is not available yet"
-                        : "No results found"}
+                        ? translate(language, "playerDataUnavailable")
+                        : translate(language, "noResultsFound")}
                     </div>
                   ) : (
                     searchResults.map((item) => (
@@ -741,20 +950,20 @@ function App() {
               }`}
               onClick={openNews}
             >
-              News
+              {translate(language, "news")}
             </button>
 
             <button
-              className="nav-link"
+              className={`nav-link ${activePage === "about" ? "active" : ""}`}
               onClick={openAbout}
             >
-              About
+              {translate(language, "about")}
             </button>
 
             <button
               className="icon-button"
               onClick={() => setMenuOpen(true)}
-              aria-label="Open settings"
+              aria-label={translate(language, "settings")}
             >
               <Menu size={19} />
             </button>
@@ -763,143 +972,115 @@ function App() {
 
             <button
               className="store-button"
-              aria-label="App store"
+              disabled
+              title={translate(language, "notAvailableYet")}
+              aria-label={translate(language, "appStore")}
             >
               <Smartphone size={16} />
             </button>
 
             <button
               className="store-button"
-              aria-label="Google Play"
+              disabled
+              title={translate(language, "notAvailableYet")}
+              aria-label={translate(language, "googlePlay")}
             >
               <Play size={16} fill="currentColor" />
             </button>
           </nav>
         </div>
       </header>
-
-      {/* Page content */}
-      {activePage === "about" ? (
-        <AboutPage language={language} />
-      ) : activePage === "news" ? (
-        <NewsPage />
-      ) : activePage === "league" ? (
-        <LeaguePage
-  league={leagueData.find(
-    (item) => item.id === selectedLeagueId
-  )}
-/>
-      ) : activePage === "team" && selectedTeam ? (
-        <TeamPage
-          teamName={selectedTeam}
-          team={teamData.find(
-            (item) => item.name === selectedTeam
-          )}
-          matches={teamMatches}
-          players={playerData.filter(
-            (player) =>
-              teamData.find(
-                (item) => item.name === selectedTeam
-              )?.id === player.teamId
-          )}
-          onOpenPlayer={openPlayer}
-          onBack={closeTeam}
-        />
-      ) : activePage === "player" && selectedPlayer ? (
-        <PlayerPage
-          player={selectedPlayer}
-          teamName={
-            teamData.find(
-              (team) => team.id === selectedPlayer.teamId
-            )?.name
-          }
-          teams={teamData}
-          transfers={transferData.filter(
-            (transfer) =>
-              transfer.playerId === selectedPlayer.id
-          )}
-          onBack={closePlayer}
-        />
-      ) : activePage === "match" && selectedMatch ? (
-        <MatchPage
-          match={selectedMatch}
-          onBack={closeMatch}
-        />
-      ) : (
-        <HomePage
-          onOpenNews={openNews}
-          onOpenLeague={openLeague}
-          onOpenMatch={openMatch}
-          onOpenTeam={openTeam}
-          search={search}
-          setSearch={setSearch}
-        />
       )}
 
+      {!isStandaloneExperience && (
+        <div className="demo-data-banner" role="note">
+          {translate(language, "demoDataNotice")}
+        </div>
+      )}
+
+      {/* Page content */}
+      {routeContent}
+
       {/* Settings menu */}
-      {menuOpen && (
+      {menuOpen && !isStandaloneExperience && (
         <div
           className="menu-overlay"
           onClick={() => setMenuOpen(false)}
         >
           <aside
             className="menu-panel"
+            ref={menuRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={translate(language, "settings")}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="menu-header">
               <div>
-                <strong>Settings</strong>
+                <strong>{translate(language, "settings")}</strong>
                 <span>VarzeshOne</span>
               </div>
 
               <button
                 className="icon-button"
                 onClick={() => setMenuOpen(false)}
-                aria-label="Close settings"
+                aria-label={translate(language, "closeSettings")}
               >
                 <X size={19} />
               </button>
             </div>
 
             <div className="menu-tools-grid">
-              <button>
+              <button disabled title={translate(language, "notAvailableYet")}>
                 <span className="tool-icon">
                   <ChartNoAxesCombined size={18} />
                 </span>
-                <span>Predictor</span>
+                <span>{translate(language, "predictor")}</span>
               </button>
 
-              <button>
+              <button disabled title={translate(language, "notAvailableYet")}>
                 <span className="tool-icon">
                   <Users size={18} />
                 </span>
-                <span>Lineup Builder</span>
+                <span>{translate(language, "lineupBuilder")}</span>
               </button>
 
-              <button>
+              <button disabled title={translate(language, "notAvailableYet")}>
                 <Tv size={18} />
-                <span>TV schedules</span>
+                <span>{translate(language, "tvSchedules")}</span>
               </button>
 
-              <button>
+              <button disabled title={translate(language, "notAvailableYet")}>
                 <span className="tool-icon">
                   <ArrowLeftRight size={18} />
                 </span>
-                <span>Transfer Center</span>
+                <span>{translate(language, "transferCenter")}</span>
               </button>
 
-              <button>
+              <button disabled title={translate(language, "notAvailableYet")}>
                 <span className="tool-icon">
                   <Newspaper size={18} />
                 </span>
-                <span>Rumors</span>
+                <span>{translate(language, "rumors")}</span>
               </button>
             </div>
 
             <div className="menu-divider" />
 
-            <button className="menu-action">
-              Sign in
+            <nav aria-label={translate(language, "mainNavigation")}>
+              <button className="menu-item" onClick={openHome} aria-current={activePage === "home" ? "page" : undefined}>{translate(language, "home")}</button>
+              <button className="menu-item" onClick={openNews} aria-current={activePage === "news" ? "page" : undefined}>{translate(language, "news")}</button>
+              <button className="menu-item" onClick={openAbout} aria-current={activePage === "about" ? "page" : undefined}>{translate(language, "about")}</button>
+            </nav>
+
+            <button
+              className="menu-action"
+              onClick={() => {
+                navigateTo("/sign-in");
+                setMenuOpen(false);
+              }}
+            >
+              {translate(language, "authSignIn")}
             </button>
 
             <div className="menu-divider" />
@@ -907,14 +1088,14 @@ function App() {
             {/* Theme settings */}
             <div className="menu-setting">
               <div>
-                <strong>Theme</strong>
+                <strong>{translate(language, "theme")}</strong>
               </div>
 
               <div className="theme-switch">
                 <button
                   className={theme === "light" ? "active" : ""}
                   onClick={() => setTheme("light")}
-                  aria-label="Light theme"
+                  aria-label={translate(language, "lightTheme")}
                   aria-pressed={theme === "light"}
                 >
                   <Sun size={16} />
@@ -923,7 +1104,7 @@ function App() {
                 <button
                   className={theme === "dark" ? "active" : ""}
                   onClick={() => setTheme("dark")}
-                  aria-label="Dark theme"
+                  aria-label={translate(language, "darkTheme")}
                   aria-pressed={theme === "dark"}
                 >
                   <Moon size={16} />
@@ -932,7 +1113,7 @@ function App() {
                 <button
                   className={theme === "system" ? "active" : ""}
                   onClick={() => setTheme("system")}
-                  aria-label="System theme"
+                  aria-label={translate(language, "systemTheme")}
                   aria-pressed={theme === "system"}
                 >
                   <Monitor size={16} />
@@ -947,7 +1128,7 @@ function App() {
                 setLanguageMenuOpen((open) => !open)
               }
               aria-expanded={languageMenuOpen}
-              aria-label="Select language"
+              aria-label={translate(language, "selectLanguage")}
             >
               <Globe size={17} />
 
@@ -956,7 +1137,7 @@ function App() {
                   ? "\u062F\u0631\u06CC"
                   : language === "ps-AF"
                     ? "\u067E\u069A\u062A\u0648"
-                    : "English (US)"}
+                    : translate(language, "englishUs")}
               </span>
 
               <ChevronDown size={15} />
@@ -1004,34 +1185,34 @@ function App() {
             )}
 
             {/* Currency */}
-            <button className="menu-setting-row">
+            <button className="menu-setting-row" disabled title={translate(language, "notAvailableYet")}>
               <span className="currency-icon">
                 <Euro size={18} />
               </span>
 
-              <span>Euro (EUR)</span>
+              <span>{translate(language, "euro")}</span>
 
               <ChevronDown size={15} />
             </button>
 
             {/* Measurement */}
-            <button className="menu-setting-row">
+            <button className="menu-setting-row" disabled title={translate(language, "notAvailableYet")}>
               <span className="metric-icon">
                 <Ruler size={18} />
               </span>
 
-              <span>Metric (cm)</span>
+              <span>{translate(language, "metric")}</span>
 
               <ChevronDown size={15} />
             </button>
 
             {/* Keyboard shortcuts */}
-            <button className="menu-setting-row">
+            <button className="menu-setting-row" disabled title={translate(language, "notAvailableYet")}>
               <span>
                 <Keyboard size={17} />
               </span>
 
-              <span>Keyboard shortcuts</span>
+              <span>{translate(language, "keyboardShortcuts")}</span>
             </button>
 
             <div className="menu-divider" />
@@ -1064,3 +1245,19 @@ function App() {
 }
 
 export default App;
+
+function RouteLoading({ language }: { language: AppLanguage }) {
+  return (
+    <main className="route-state-page">
+      <p role="status">{translate(language, "loadingPage")}</p>
+    </main>
+  );
+}
+
+function RouteLoadError({ language }: { language: AppLanguage }) {
+  return (
+    <main className="route-state-page">
+      <p role="alert">{translate(language, "pageDataError")}</p>
+    </main>
+  );
+}

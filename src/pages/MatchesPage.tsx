@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   Clock3,
@@ -12,8 +12,11 @@ import {
 
 import type { League, Match, SportType } from "../types/sports";
 import { getLeagues, getMatches } from "../services/sportsService";
+import { translate } from "../i18n";
+import type { AppLanguage, TranslationKey } from "../i18n";
 
 type MatchesPageProps = {
+  language: AppLanguage;
   onOpenMatch: (match: Match) => void;
 };
 
@@ -32,29 +35,31 @@ function getMatchDateKey(match: Match): string {
   return Number.isNaN(parsed.getTime()) ? match.date : getDateKey(parsed);
 }
 
-function formatMatchDate(date: string): string {
+function formatMatchDate(date: string, language: AppLanguage): string {
   const parsed = new Date(`${date}T00:00:00`);
 
   if (Number.isNaN(parsed.getTime())) {
     return date;
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : language === "fa-AF" ? "fa-AF" : "ps-AF", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   }).format(parsed);
 }
 
-function getStatusLabel(match: Match): string {
-  if (match.status === "LIVE") return "LIVE";
-  if (match.status === "FT") return "FULL TIME";
-  return "UPCOMING";
+function getStatusLabel(match: Match, language: AppLanguage): string {
+  if (match.status === "LIVE") return translate(language, "live").toUpperCase();
+  if (match.status === "FT") return translate(language, "fullTime").toUpperCase();
+  return translate(language, "scheduled").toUpperCase();
 }
 
 export default function MatchesPage({
+  language,
   onOpenMatch,
 }: MatchesPageProps) {
+  const t = (key: TranslationKey) => translate(language, key);
   const [matches, setMatches] = useState<Match[]>([]);
   const [leagues, setLeagues] = useState<League[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,18 +71,19 @@ export default function MatchesPage({
   const [search, setSearch] = useState("");
   const [tvOnly, setTvOnly] = useState(false);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const requestId = useRef(0);
 
   const loadData = useCallback(() => {
-    let cancelled = false;
+    const currentRequest = ++requestId.current;
 
     Promise.all([getMatches(), getLeagues()])
       .then(([matchData, leagueData]) => {
-        if (cancelled) return;
+        if (currentRequest !== requestId.current) return;
         setMatches(matchData);
         setLeagues(leagueData);
       })
       .catch((loadError: unknown) => {
-        if (cancelled) return;
+        if (currentRequest !== requestId.current) return;
         console.error("Failed to load matches page:", loadError);
         setError(
           loadError instanceof Error
@@ -86,16 +92,16 @@ export default function MatchesPage({
         );
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (currentRequest === requestId.current) setLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      if (currentRequest === requestId.current) requestId.current++;
     };
   }, []);
 
   useEffect(() => {
-    loadData();
+    return loadData();
   }, [loadData]);
 
   const today = getDateKey(new Date());
@@ -119,7 +125,7 @@ export default function MatchesPage({
         if (statusFilter === "finished" && match.status !== "FT") return false;
 
         if (sportFilter !== "all" && match.sport !== sportFilter) return false;
-        if (leagueFilter !== "all" && match.league !== leagueFilter) return false;
+        if (leagueFilter !== "all" && match.leagueId !== leagueFilter) return false;
         if (dateFilter && getMatchDateKey(match) !== dateFilter) return false;
         if (tvOnly && !match.onTV) return false;
 
@@ -163,9 +169,9 @@ export default function MatchesPage({
     const groups = new Map<string, Match[]>();
 
     filteredMatches.forEach((match) => {
-      const group = groups.get(match.league) ?? [];
+      const group = groups.get(match.leagueId) ?? [];
       group.push(match);
-      groups.set(match.league, group);
+      groups.set(match.leagueId, group);
     });
 
     return Array.from(groups.entries()).map(([leagueId, items]) => ({
@@ -198,25 +204,25 @@ export default function MatchesPage({
     <main className="matches-page">
       <div className="matches-page-heading">
         <div>
-          <span className="matches-page-eyebrow">VARZESHONE · SCORES</span>
-          <h1>Matches</h1>
-          <p>Live scores, fixtures and results from football and futsal.</p>
+          <span className="matches-page-eyebrow">{t("matchesScores")}</span>
+          <h1>{t("matches")}</h1>
+          <p>{t("matchesSubtitle")}</p>
         </div>
 
         <div className="matches-page-total">
           <Trophy size={19} />
-          <span>{matches.length} matches</span>
+          <span>{matches.length} {t("matchesCount")}</span>
         </div>
       </div>
 
       <section className="matches-page-panel">
-        <div className="matches-page-status-tabs" role="tablist" aria-label="Match status">
+        <div className="matches-page-status-tabs" role="tablist" aria-label={t("matchStatus")}>
           {([
-            ["all", "All"],
-            ["live", "Live"],
-            ["today", "Today"],
-            ["upcoming", "Upcoming"],
-            ["finished", "Finished"],
+            ["all", t("all")],
+            ["live", t("live")],
+            ["today", t("today")],
+            ["upcoming", t("scheduled")],
+            ["finished", t("finished")],
           ] as [StatusFilter, string][]).map(([value, label]) => (
             <button
               type="button"
@@ -234,27 +240,27 @@ export default function MatchesPage({
         </div>
 
         <div className="matches-page-toolbar">
-          <div className="matches-page-sports" aria-label="Sport filter">
+          <div className="matches-page-sports" aria-label={t("sportFilter")}>
             <button
               type="button"
               className={sportFilter === "all" ? "active" : ""}
               onClick={() => setSportFilter("all")}
             >
-              All sports
+              {t("allSports")}
             </button>
             <button
               type="button"
               className={sportFilter === "football" ? "active" : ""}
               onClick={() => setSportFilter("football")}
             >
-              Football
+              {t("football")}
             </button>
             <button
               type="button"
               className={sportFilter === "futsal" ? "active" : ""}
               onClick={() => setSportFilter("futsal")}
             >
-              Futsal
+              {t("futsal")}
             </button>
           </div>
 
@@ -264,11 +270,11 @@ export default function MatchesPage({
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search teams or competitions"
-              aria-label="Search teams or competitions"
+              placeholder={t("searchTeamsCompetitions")}
+              aria-label={t("searchTeamsCompetitions")}
             />
             {search && (
-              <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
+              <button type="button" onClick={() => setSearch("")} aria-label={t("clearSearch")}>
                 <X size={15} />
               </button>
             )}
@@ -281,9 +287,9 @@ export default function MatchesPage({
             <select
               value={leagueFilter}
               onChange={(event) => setLeagueFilter(event.target.value)}
-              aria-label="Filter by league"
+              aria-label={t("filterByLeague")}
             >
-              <option value="all">All competitions</option>
+              <option value="all">{t("allCompetitions")}</option>
               {leagues
                 .filter((league) => sportFilter === "all" || league.sport === sportFilter)
                 .map((league) => (
@@ -300,7 +306,7 @@ export default function MatchesPage({
               type="date"
               value={dateFilter}
               onChange={(event) => setDateFilter(event.target.value)}
-              aria-label="Filter by date"
+              aria-label={t("filterByDate")}
             />
           </label>
 
@@ -311,7 +317,7 @@ export default function MatchesPage({
             aria-pressed={tvOnly}
           >
             <Tv size={15} />
-            On TV
+            {t("onTelevision")}
           </button>
 
           <button
@@ -320,7 +326,7 @@ export default function MatchesPage({
             onClick={() => setSortOrder((value) => value === "asc" ? "desc" : "asc")}
           >
             <SlidersHorizontal size={15} />
-            Time {sortOrder === "asc" ? "↑" : "↓"}
+            {t("time")} {sortOrder === "asc" ? "↑" : "↓"}
           </button>
 
           {hasFilters && (
@@ -330,7 +336,7 @@ export default function MatchesPage({
               onClick={resetFilters}
             >
               <X size={14} />
-              Clear filters
+              {t("clearFilters")}
             </button>
           )}
         </div>
@@ -339,30 +345,34 @@ export default function MatchesPage({
       {loading ? (
         <section className="matches-page-state" aria-live="polite">
           <span className="matches-page-spinner" />
-          <strong>Loading matches</strong>
-          <p>Getting the latest fixtures and results...</p>
+          <strong>{t("loadingMatches")}</strong>
+          <p>{t("loadingMatchesNote")}</p>
         </section>
       ) : error ? (
         <section className="matches-page-state matches-page-error" role="alert">
-          <strong>Could not load matches</strong>
+          <strong>{t("couldNotLoadMatches")}</strong>
           <p>{error}</p>
-          <button type="button" onClick={loadData}>
+          <button type="button" onClick={() => {
+            setLoading(true);
+            setError("");
+            loadData();
+          }}>
             <RefreshCw size={15} />
-            Try again
+            {t("retry")}
           </button>
         </section>
       ) : filteredMatches.length === 0 ? (
         <section className="matches-page-state">
           <CalendarDays size={34} />
-          <strong>No matches found</strong>
-          <p>There are no matches for the selected filters.</p>
-          <button type="button" onClick={resetFilters}>Clear filters</button>
+          <strong>{t("noMatchesFound")}</strong>
+          <p>{t("noMatchesFilterNote")}</p>
+          <button type="button" onClick={resetFilters}>{t("clearFilters")}</button>
         </section>
       ) : (
         <div className="matches-page-groups">
           <div className="matches-page-results-line">
-            <span>{filteredMatches.length} matches found</span>
-            <span>{dateFilter ? formatMatchDate(dateFilter) : "All selected dates"}</span>
+            <span>{filteredMatches.length} {t("matchesFound")}</span>
+            <span>{dateFilter ? formatMatchDate(dateFilter, language) : t("allSelectedDates")}</span>
           </div>
 
           {groupedMatches.map((group) => (
@@ -374,9 +384,9 @@ export default function MatchesPage({
                 <div>
                   <strong>{group.title}</strong>
                   <span>
-                    {group.sport === "futsal" ? "Futsal" : "Football"}
+                    {group.sport === "futsal" ? t("futsal") : t("football")}
                     {" · "}
-                    {group.matches.length} matches
+                    {group.matches.length} {t("matchesCount")}
                   </span>
                 </div>
               </header>
@@ -390,16 +400,16 @@ export default function MatchesPage({
                 >
                   <span className="matches-page-match-date">
                     {match.status === "LIVE" ? (
-                      <span className="matches-page-live-label">LIVE</span>
+                      <span className="matches-page-live-label">{t("live").toUpperCase()}</span>
                     ) : match.status === "FT" ? (
-                      <span>FT</span>
+                      <span>{t("ft")}</span>
                     ) : (
                       <span className="matches-page-time">
                         <Clock3 size={13} />
-                        {match.time ?? "TBD"}
+                        {match.time ?? t("tbd")}
                       </span>
                     )}
-                    <small>{formatMatchDate(match.date)}</small>
+                    <small>{formatMatchDate(match.date, language)}</small>
                   </span>
 
                   <span className="matches-page-teams">
@@ -421,9 +431,9 @@ export default function MatchesPage({
                   </span>
 
                   <span className="matches-page-match-meta">
-                    {match.onTV && <Tv size={14} aria-label="On TV" />}
+                    {match.onTV && <Tv size={14} aria-label={t("onTelevision")} />}
                     <span className={`matches-page-status ${match.status.toLowerCase()}`}>
-                      {getStatusLabel(match)}
+                      {getStatusLabel(match, language)}
                     </span>
                   </span>
                 </button>
